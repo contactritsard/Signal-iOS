@@ -8,6 +8,8 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+const int32_t kGroupIdLength = 16;
+
 @interface TSGroupModel ()
 
 @property (nullable, nonatomic) NSString *groupName;
@@ -24,7 +26,8 @@ NS_ASSUME_NONNULL_BEGIN
                         image:(nullable UIImage *)image
                       groupId:(NSData *)groupId
 {
-    OWSAssert(memberIds);
+    OWSAssertDebug(memberIds);
+    OWSAssertDebug(groupId.length == kGroupIdLength);
 
     _groupName              = title;
     _groupMemberIds         = [memberIds copy];
@@ -46,6 +49,7 @@ NS_ASSUME_NONNULL_BEGIN
     if (_groupMemberIds == nil) {
         _groupMemberIds = [NSArray new];
     }
+    OWSAssertDebug(self.groupId.length == kGroupIdLength);
 
     return self;
 }

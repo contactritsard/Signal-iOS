@@ -7,6 +7,8 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+extern NSString *const OWSPrimaryStorageIdentityKeyStoreCollection;
+
 extern NSString *const OWSPrimaryStorageTrustedKeysCollection;
 
 // This notification will be fired whenever identities are created
@@ -16,24 +18,24 @@ extern NSString *const kNSNotificationName_IdentityStateDidChange;
 // number of bytes in a signal identity key, excluding the key-type byte.
 extern const NSUInteger kIdentityKeyLength;
 
+#ifdef DEBUG
+extern const NSUInteger kStoredIdentityKeyLength;
+#endif
+
 @class OWSRecipientIdentity;
-@class OWSSignalServiceProtosVerified;
 @class OWSStorage;
+@class SSKProtoVerified;
 @class YapDatabaseReadWriteTransaction;
 
 // This class can be safely accessed and used from any thread.
 @interface OWSIdentityManager : NSObject <IdentityKeyStore>
 
 - (instancetype)init NS_UNAVAILABLE;
+- (instancetype)initWithPrimaryStorage:(OWSPrimaryStorage *)primaryStorage NS_DESIGNATED_INITIALIZER;
 
 + (instancetype)sharedManager;
 
 - (void)generateNewIdentityKey;
-
-- (nullable NSData *)identityKeyForRecipientId:(NSString *)recipientId;
-
-- (nullable NSData *)identityKeyForRecipientId:(NSString *)recipientId
-                                   transaction:(YapDatabaseReadTransaction *)transaction;
 
 - (void)setVerificationState:(OWSVerificationState)verificationState
                  identityKey:(NSData *)identityKey
@@ -60,8 +62,8 @@ extern const NSUInteger kIdentityKeyLength;
 - (nullable OWSRecipientIdentity *)untrustedIdentityForSendingToRecipientId:(NSString *)recipientId;
 
 // This method can be called from any thread.
-- (void)processIncomingSyncMessage:(OWSSignalServiceProtosVerified *)verified
-                       transaction:(YapDatabaseReadWriteTransaction *)transaction;
+- (void)throws_processIncomingSyncMessage:(SSKProtoVerified *)verified
+                              transaction:(YapDatabaseReadWriteTransaction *)transaction;
 
 - (BOOL)saveRemoteIdentity:(NSData *)identityKey recipientId:(NSString *)recipientId;
 

@@ -7,14 +7,14 @@
 #import "UIView+OWS.h"
 #import <MetalKit/MetalKit.h>
 #import <PureLayout/PureLayout.h>
-#import <SignalServiceKit/Threading.h>
+#import <SignalCoreKit/Threading.h>
 #import <WebRTC/RTCEAGLVideoView.h>
 #import <WebRTC/RTCMTLVideoView.h>
 #import <WebRTC/RTCVideoRenderer.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface RemoteVideoView () <RTCEAGLVideoViewDelegate>
+@interface RemoteVideoView () <RTCVideoViewDelegate>
 
 @property (nonatomic, readonly) __kindof UIView<RTCVideoRenderer> *videoRenderer;
 
@@ -35,7 +35,7 @@ NS_ASSUME_NONNULL_BEGIN
     _remoteVideoConstraints = @[];
 
 // Currently RTC only supports metal on 64bit machines
-#if defined(RTC_SUPPORTS_METAL)
+#if defined(__arm64__)
     // On 64-bit, iOS9+: uses the MetalKit backed view for improved battery/rendering performance.
     if (_videoRenderer == nil) {
 
@@ -43,7 +43,9 @@ NS_ASSUME_NONNULL_BEGIN
         // RTCMTLVideoView requires the MTKView class, available only in iOS9+
         // So check that it exists before proceeding.
         if ([MTKView class]) {
-            _videoRenderer = [[RTCMTLVideoView alloc] initWithFrame:CGRectZero];
+            RTCMTLVideoView *rtcMetalView = [[RTCMTLVideoView alloc] initWithFrame:CGRectZero];
+            rtcMetalView.videoContentMode = UIViewContentModeScaleAspectFill;
+            _videoRenderer = rtcMetalView;
             [self addSubview:_videoRenderer];
             [_videoRenderer autoPinEdgesToSuperviewEdges];
             // HACK: Although RTCMTLVideo view is positioned to the top edge of the screen
@@ -52,14 +54,11 @@ NS_ASSUME_NONNULL_BEGIN
                 if ([subview isKindOfClass:[MTKView class]]) {
                     [subview autoPinEdgesToSuperviewEdges];
                 } else {
-                    OWSFail(@"New subviews added to MTLVideoView. Reconsider this hack.");
+                    OWSFailDebug(@"New subviews added to MTLVideoView. Reconsider this hack.");
                 }
             }
         }
     }
-#elif defined(__arm64__)
-    // Canary incase the upstream RTC_SUPPORTS_METAL macro changes semantics
-    OWSFail(@"should only use legacy video view on 32bit systems");
 #endif
 
     // On 32-bit iOS9+ systems, use the legacy EAGL backed view.
@@ -87,32 +86,33 @@ NS_ASSUME_NONNULL_BEGIN
     [self.videoRenderer setSize:size];
 }
 
-#pragma mark - RTCEAGLVideoViewDelegate
+#pragma mark - RTCVideoViewDelegate
 
-- (void)videoView:(RTCEAGLVideoView *)videoView didChangeVideoSize:(CGSize)remoteVideoSize
+- (void)videoView:(id<RTCVideoRenderer>)videoRenderer didChangeVideoSize:(CGSize)remoteVideoSize
 {
     OWSAssertIsOnMainThread();
+
+    if (![videoRenderer isKindOfClass:[RTCEAGLVideoView class]]) {
+        OWSFailDebug(@"Unexpected videoRenderer: %@", videoRenderer);
+        return;
+    }
+    RTCEAGLVideoView *videoView = (RTCEAGLVideoView *)videoRenderer;
+
     if (remoteVideoSize.height <= 0) {
-        OWSFail(@"Illegal video height: %f", remoteVideoSize.height);
+        OWSFailDebug(@"Illegal video height: %f", remoteVideoSize.height);
         return;
     }
 
     CGFloat aspectRatio = remoteVideoSize.width / remoteVideoSize.height;
 
-    DDLogVerbose(@"%@ Remote video size: width: %f height: %f ratio: %f",
-        self.logTag,
+    OWSLogVerbose(@"Remote video size: width: %f height: %f ratio: %f",
         remoteVideoSize.width,
         remoteVideoSize.height,
         aspectRatio);
 
     UIView *containingView = self.superview;
     if (containingView == nil) {
-        DDLogDebug(@"%@ Cannot layout video view without superview", self.logTag);
-        return;
-    }
-
-    if (![self.videoRenderer isKindOfClass:[RTCEAGLVideoView class]]) {
-        OWSFail(@"%@ Unexpected video renderer: %@", self.logTag, self.videoRenderer);
+        OWSLogDebug(@"Cannot layout video view without superview");
         return;
     }
 

@@ -1,14 +1,19 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
+
+NS_ASSUME_NONNULL_BEGIN
+
+@class SMKUDAccessKey;
 
 @interface TSRequest : NSMutableURLRequest
 
+@property (nonatomic) BOOL isUDRequest;
 @property (nonatomic) BOOL shouldHaveAuthorizationHeaders;
 @property (atomic, nullable) NSString *authUsername;
 @property (atomic, nullable) NSString *authPassword;
 
-@property (nonatomic, readonly) NSDictionary *parameters;
+@property (nonatomic, readonly) NSDictionary<NSString *, id> *parameters;
 
 - (instancetype)init NS_UNAVAILABLE;
 
@@ -27,3 +32,5 @@
                     parameters:(nullable NSDictionary<NSString *, id> *)parameters;
 
 @end
+
+NS_ASSUME_NONNULL_END

@@ -1,38 +1,46 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 import Foundation
 
 @objc
-class OWSLayerView: UIView {
-    let layoutCallback: ((UIView) -> Void)
+public class OWSLayerView: UIView {
+    @objc
+    public var layoutCallback: ((UIView) -> Void)
 
     @objc
-    public required init(frame: CGRect, layoutCallback : @escaping (UIView) -> Void) {
+    public init() {
+        self.layoutCallback = { (_) in
+        }
+        super.init(frame: .zero)
+    }
+
+    @objc
+    public init(frame: CGRect, layoutCallback : @escaping (UIView) -> Void) {
         self.layoutCallback = layoutCallback
         super.init(frame: frame)
     }
 
-    required init?(coder aDecoder: NSCoder) {
+    public required init?(coder aDecoder: NSCoder) {
         self.layoutCallback = { _ in
         }
         super.init(coder: aDecoder)
     }
 
-    override var bounds: CGRect {
+    public override var bounds: CGRect {
         didSet {
             layoutCallback(self)
         }
     }
 
-    override var frame: CGRect {
+    public override var frame: CGRect {
         didSet {
             layoutCallback(self)
         }
     }
 
-    override var center: CGPoint {
+    public override var center: CGPoint {
         didSet {
             layoutCallback(self)
         }

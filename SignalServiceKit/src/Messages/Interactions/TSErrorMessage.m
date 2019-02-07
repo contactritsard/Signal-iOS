@@ -1,14 +1,14 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 #import "TSErrorMessage.h"
 #import "ContactsManagerProtocol.h"
-#import "NSDate+OWS.h"
 #import "OWSMessageManager.h"
+#import "SSKEnvironment.h"
 #import "TSContactThread.h"
 #import "TSErrorMessage_privateConstructor.h"
-#import "TextSecureKitEnv.h"
+#import <SignalCoreKit/NSDate+OWS.h>
 #import <SignalServiceKit/SignalServiceKit-Swift.h>
 #import <YapDatabase/YapDatabaseConnection.h>
 
@@ -60,7 +60,8 @@ NSUInteger TSErrorMessageSchemaVersion = 1;
                           expiresInSeconds:0
                            expireStartedAt:0
                              quotedMessage:nil
-                              contactShare:nil];
+                              contactShare:nil
+                               linkPreview:nil];
 
     if (!self) {
         return self;
@@ -84,19 +85,16 @@ NSUInteger TSErrorMessageSchemaVersion = 1;
     return [self initWithTimestamp:timestamp inThread:thread failedMessageType:errorMessageType recipientId:nil];
 }
 
-- (instancetype)initWithEnvelope:(SSKEnvelope *)envelope
+- (instancetype)initWithEnvelope:(SSKProtoEnvelope *)envelope
                  withTransaction:(YapDatabaseReadWriteTransaction *)transaction
                failedMessageType:(TSErrorMessageType)errorMessageType
 {
     TSContactThread *contactThread =
         [TSContactThread getOrCreateThreadWithContactId:envelope.source transaction:transaction];
 
+    // Legit usage of senderTimestamp. We don't actually currently surface it in the UI, but it serves as
+    // a reference to the envelope which we failed to process.
     return [self initWithTimestamp:envelope.timestamp inThread:contactThread failedMessageType:errorMessageType];
-}
-
-- (instancetype)initWithFailedMessageType:(TSErrorMessageType)errorMessageType
-{
-    return [self initWithTimestamp:[NSDate ows_millisecondTimeStamp] inThread:nil failedMessageType:errorMessageType];
 }
 
 - (OWSInteractionType)interactionType
@@ -125,7 +123,8 @@ NSUInteger TSErrorMessageSchemaVersion = 1;
                     @"Shown when signal users safety numbers changed, embeds the user's {{name or phone number}}");
 
                 NSString *recipientDisplayName =
-                    [[TextSecureKitEnv sharedEnv].contactsManager displayNameForPhoneIdentifier:self.recipientId];
+                    [SSKEnvironment.shared.contactsManager displayNameForPhoneIdentifier:self.recipientId
+                                                                             transaction:transaction];
                 return [NSString stringWithFormat:messageFormat, recipientDisplayName];
             } else {
                 // recipientId will be nil for legacy errors
@@ -146,7 +145,7 @@ NSUInteger TSErrorMessageSchemaVersion = 1;
     }
 }
 
-+ (instancetype)corruptedMessageWithEnvelope:(SSKEnvelope *)envelope
++ (instancetype)corruptedMessageWithEnvelope:(SSKProtoEnvelope *)envelope
                              withTransaction:(YapDatabaseReadWriteTransaction *)transaction
 {
     return [[self alloc] initWithEnvelope:envelope
@@ -156,10 +155,13 @@ NSUInteger TSErrorMessageSchemaVersion = 1;
 
 + (instancetype)corruptedMessageInUnknownThread
 {
-    return [[self alloc] initWithFailedMessageType:TSErrorMessageInvalidMessage];
+    // MJK TODO - Seems like we could safely remove this timestamp
+    return [[self alloc] initWithTimestamp:[NSDate ows_millisecondTimeStamp]
+                                  inThread:nil
+                         failedMessageType:TSErrorMessageInvalidMessage];
 }
 
-+ (instancetype)invalidVersionWithEnvelope:(SSKEnvelope *)envelope
++ (instancetype)invalidVersionWithEnvelope:(SSKProtoEnvelope *)envelope
                            withTransaction:(YapDatabaseReadWriteTransaction *)transaction
 {
     return [[self alloc] initWithEnvelope:envelope
@@ -167,7 +169,7 @@ NSUInteger TSErrorMessageSchemaVersion = 1;
                         failedMessageType:TSErrorMessageInvalidVersion];
 }
 
-+ (instancetype)invalidKeyExceptionWithEnvelope:(SSKEnvelope *)envelope
++ (instancetype)invalidKeyExceptionWithEnvelope:(SSKProtoEnvelope *)envelope
                                 withTransaction:(YapDatabaseReadWriteTransaction *)transaction
 {
     return [[self alloc] initWithEnvelope:envelope
@@ -175,7 +177,7 @@ NSUInteger TSErrorMessageSchemaVersion = 1;
                         failedMessageType:TSErrorMessageInvalidKeyException];
 }
 
-+ (instancetype)missingSessionWithEnvelope:(SSKEnvelope *)envelope
++ (instancetype)missingSessionWithEnvelope:(SSKProtoEnvelope *)envelope
                            withTransaction:(YapDatabaseReadWriteTransaction *)transaction
 {
     return
@@ -184,6 +186,7 @@ NSUInteger TSErrorMessageSchemaVersion = 1;
 
 + (instancetype)nonblockingIdentityChangeInThread:(TSThread *)thread recipientId:(NSString *)recipientId
 {
+    // MJK TODO - should be safe to remove this senderTimestamp
     return [[self alloc] initWithTimestamp:[NSDate ows_millisecondTimeStamp]
                                   inThread:thread
                          failedMessageType:TSErrorMessageNonBlockingIdentityChange
@@ -206,14 +209,13 @@ NSUInteger TSErrorMessageSchemaVersion = 1;
               sendReadReceipt:(BOOL)sendReadReceipt
                   transaction:(YapDatabaseReadWriteTransaction *)transaction
 {
-    OWSAssert(transaction);
+    OWSAssertDebug(transaction);
 
     if (_read) {
         return;
     }
 
-    DDLogDebug(
-        @"%@ marking as read uniqueId: %@ which has timestamp: %llu", self.logTag, self.uniqueId, self.timestamp);
+    OWSLogDebug(@"marking as read uniqueId: %@ which has timestamp: %llu", self.uniqueId, self.timestamp);
     _read = YES;
     [self saveWithTransaction:transaction];
     [self touchThreadWithTransaction:transaction];

@@ -1,11 +1,14 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 #import <PureLayout/PureLayout.h>
+#import <SignalServiceKit/OWSMath.h>
 #import <UIKit/UIKit.h>
 
 NS_ASSUME_NONNULL_BEGIN
+
+typedef void (^UIViewVisitorBlock)(UIView *view);
 
 // A convenience method for doing responsive layout. Scales between two
 // reference values (for iPhone 5 and iPhone 7 Plus) to the current device
@@ -106,6 +109,8 @@ CGFloat ScaleFromIPhone5(CGFloat iPhone5Value);
 
 - (NSArray<NSLayoutConstraint *> *)autoPinToEdgesOfView:(UIView *)view;
 
+- (void)traverseViewHierarchyWithVisitor:(UIViewVisitorBlock)visitor;
+
 #pragma mark - Containers
 
 + (UIView *)containerView;
@@ -145,29 +150,11 @@ CGFloat ScaleFromIPhone5(CGFloat iPhone5Value);
 
 - (UIView *)addBackgroundViewWithBackgroundColor:(UIColor *)backgroundColor;
 
+- (UIView *)addBorderViewWithColor:(UIColor *)color strokeWidth:(CGFloat)strokeWidth cornerRadius:(CGFloat)cornerRadius;
+
 @end
 
 #pragma mark - Macros
-
-CG_INLINE CGSize CGSizeCeil(CGSize size)
-{
-    return CGSizeMake((CGFloat)ceil(size.width), (CGFloat)ceil(size.height));
-}
-
-CG_INLINE CGSize CGSizeFloor(CGSize size)
-{
-    return CGSizeMake((CGFloat)floor(size.width), (CGFloat)floor(size.height));
-}
-
-CG_INLINE CGSize CGSizeRound(CGSize size)
-{
-    return CGSizeMake((CGFloat)round(size.width), (CGFloat)round(size.height));
-}
-
-CG_INLINE CGSize CGSizeMax(CGSize size1, CGSize size2)
-{
-    return CGSizeMake(MAX(size1.width, size2.width), MAX(size1.height, size2.height));
-}
 
 CGFloat CGHairlineWidth(void);
 

@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 #import "TSMessage.h"
@@ -41,17 +41,17 @@ typedef NS_ENUM(NSInteger, OWSOutgoingMessageRecipientState) {
 NSString *NSStringForOutgoingMessageRecipientState(OWSOutgoingMessageRecipientState value);
 
 typedef NS_ENUM(NSInteger, TSGroupMetaMessage) {
-    TSGroupMessageUnspecified,
-    TSGroupMessageNew,
-    TSGroupMessageUpdate,
-    TSGroupMessageDeliver,
-    TSGroupMessageQuit,
-    TSGroupMessageRequestInfo,
+    TSGroupMetaMessageUnspecified,
+    TSGroupMetaMessageNew,
+    TSGroupMetaMessageUpdate,
+    TSGroupMetaMessageDeliver,
+    TSGroupMetaMessageQuit,
+    TSGroupMetaMessageRequestInfo,
 };
 
-@class OWSSignalServiceProtosAttachmentPointer;
-@class OWSSignalServiceProtosContentBuilder;
-@class OWSSignalServiceProtosDataMessageBuilder;
+@class SSKProtoAttachmentPointer;
+@class SSKProtoContentBuilder;
+@class SSKProtoDataMessageBuilder;
 @class SignalRecipient;
 
 @interface TSOutgoingMessageRecipientState : MTLModel
@@ -61,6 +61,8 @@ typedef NS_ENUM(NSInteger, TSGroupMetaMessage) {
 @property (atomic, nullable, readonly) NSNumber *deliveryTimestamp;
 // This property should only be set if state == .sent.
 @property (atomic, nullable, readonly) NSNumber *readTimestamp;
+
+@property (atomic, readonly) BOOL wasSentByUD;
 
 @end
 
@@ -75,8 +77,10 @@ typedef NS_ENUM(NSInteger, TSGroupMetaMessage) {
                         expiresInSeconds:(uint32_t)expiresInSeconds
                          expireStartedAt:(uint64_t)expireStartedAt
                            quotedMessage:(nullable TSQuotedMessage *)quotedMessage
-                            contactShare:(nullable OWSContact *)contactShare NS_UNAVAILABLE;
+                            contactShare:(nullable OWSContact *)contactShare
+                             linkPreview:(nullable OWSLinkPreview *)linkPreview NS_UNAVAILABLE;
 
+// MJK TODO - Can we remove the sender timestamp param?
 - (instancetype)initOutgoingMessageWithTimestamp:(uint64_t)timestamp
                                         inThread:(nullable TSThread *)thread
                                      messageBody:(nullable NSString *)body
@@ -86,7 +90,8 @@ typedef NS_ENUM(NSInteger, TSGroupMetaMessage) {
                                   isVoiceMessage:(BOOL)isVoiceMessage
                                 groupMetaMessage:(TSGroupMetaMessage)groupMetaMessage
                                    quotedMessage:(nullable TSQuotedMessage *)quotedMessage
-                                    contactShare:(nullable OWSContact *)contactShare NS_DESIGNATED_INITIALIZER;
+                                    contactShare:(nullable OWSContact *)contactShare
+                                     linkPreview:(nullable OWSLinkPreview *)linkPreview NS_DESIGNATED_INITIALIZER;
 
 - (nullable instancetype)initWithCoder:(NSCoder *)coder NS_DESIGNATED_INITIALIZER;
 
@@ -103,7 +108,8 @@ typedef NS_ENUM(NSInteger, TSGroupMetaMessage) {
                             messageBody:(nullable NSString *)body
                            attachmentId:(nullable NSString *)attachmentId
                        expiresInSeconds:(uint32_t)expiresInSeconds
-                          quotedMessage:(nullable TSQuotedMessage *)quotedMessage;
+                          quotedMessage:(nullable TSQuotedMessage *)quotedMessage
+                            linkPreview:(nullable OWSLinkPreview *)linkPreview;
 
 + (instancetype)outgoingMessageInThread:(nullable TSThread *)thread
                        groupMetaMessage:(TSGroupMetaMessage)groupMetaMessage
@@ -111,6 +117,7 @@ typedef NS_ENUM(NSInteger, TSGroupMetaMessage) {
 
 @property (readonly) TSOutgoingMessageState messageState;
 @property (readonly) BOOL wasDeliveredToAnyRecipient;
+@property (readonly) BOOL wasSentToAnyRecipient;
 
 @property (atomic, readonly) BOOL hasSyncedTranscript;
 @property (atomic, readonly) NSString *customMessage;
@@ -127,16 +134,18 @@ typedef NS_ENUM(NSInteger, TSGroupMetaMessage) {
 
 @property (nonatomic, readonly) BOOL isSilent;
 
+@property (nonatomic, readonly) BOOL isOnline;
+
 /**
  * The data representation of this message, to be encrypted, before being sent.
  */
-- (NSData *)buildPlainTextData:(SignalRecipient *)recipient;
+- (nullable NSData *)buildPlainTextData:(SignalRecipient *)recipient;
 
 /**
  * Intermediate protobuf representation
  * Subclasses can augment if they want to manipulate the data message before building.
  */
-- (OWSSignalServiceProtosDataMessageBuilder *)dataMessageBuilder;
+- (nullable SSKProtoDataMessageBuilder *)dataMessageBuilder;
 
 /**
  * Should this message be synced to the users other registered devices? This is
@@ -153,7 +162,10 @@ typedef NS_ENUM(NSInteger, TSGroupMetaMessage) {
 // All recipients of this message who we are currently trying to send to (queued, uploading or during send).
 - (NSArray<NSString *> *)sendingRecipientIds;
 
-// All recipients of this message to whom it has been sent and delivered.
+// All recipients of this message to whom it has been sent (and possibly delivered or read).
+- (NSArray<NSString *> *)sentRecipientIds;
+
+// All recipients of this message to whom it has been sent and delivered (and possibly read).
 - (NSArray<NSString *> *)deliveredRecipientIds;
 
 // All recipients of this message to whom it has been sent, delivered and read.
@@ -167,7 +179,9 @@ typedef NS_ENUM(NSInteger, TSGroupMetaMessage) {
 #pragma mark - Update With... Methods
 
 // This method is used to record a successful send to one recipient.
-- (void)updateWithSentRecipient:(NSString *)recipientId transaction:(YapDatabaseReadWriteTransaction *)transaction;
+- (void)updateWithSentRecipient:(NSString *)recipientId
+                    wasSentByUD:(BOOL)wasSentByUD
+                    transaction:(YapDatabaseReadWriteTransaction *)transaction;
 
 // This method is used to record a skipped send to one recipient.
 - (void)updateWithSkippedRecipient:(NSString *)recipientId transaction:(YapDatabaseReadWriteTransaction *)transaction;
@@ -185,7 +199,9 @@ typedef NS_ENUM(NSInteger, TSGroupMetaMessage) {
                        transaction:(YapDatabaseReadWriteTransaction *)transaction;
 
 // This method is used to record a failed send to all "sending" recipients.
-- (void)updateWithSendingError:(NSError *)error;
+- (void)updateWithSendingError:(NSError *)error
+                   transaction:(YapDatabaseReadWriteTransaction *)transaction
+    NS_SWIFT_NAME(update(sendingError:transaction:));
 
 - (void)updateWithHasSyncedTranscript:(BOOL)hasSyncedTranscript
                           transaction:(YapDatabaseReadWriteTransaction *)transaction;
@@ -202,7 +218,9 @@ typedef NS_ENUM(NSInteger, TSGroupMetaMessage) {
                    deliveryTimestamp:(NSNumber *_Nullable)deliveryTimestamp
                          transaction:(YapDatabaseReadWriteTransaction *)transaction;
 
-- (void)updateWithWasSentFromLinkedDeviceWithTransaction:(YapDatabaseReadWriteTransaction *)transaction;
+- (void)updateWithWasSentFromLinkedDeviceWithUDRecipientIds:(nullable NSArray<NSString *> *)udRecipientIds
+                                          nonUdRecipientIds:(nullable NSArray<NSString *> *)nonUdRecipientIds
+                                                transaction:(YapDatabaseReadWriteTransaction *)transaction;
 
 // This method is used to rewrite the recipient list with a single recipient.
 // It is used to reply to a "group info request", which should only be

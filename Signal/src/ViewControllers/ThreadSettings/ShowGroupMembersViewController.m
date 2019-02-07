@@ -87,9 +87,9 @@ NS_ASSUME_NONNULL_BEGIN
 
     _thread = thread;
 
-    OWSAssert(self.thread);
-    OWSAssert(self.thread.groupModel);
-    OWSAssert(self.thread.groupModel.groupMemberIds);
+    OWSAssertDebug(self.thread);
+    OWSAssertDebug(self.thread.groupModel);
+    OWSAssertDebug(self.thread.groupModel.groupMemberIds);
 
     self.memberRecipientIds = [NSSet setWithArray:self.thread.groupModel.groupMemberIds];
 }
@@ -98,7 +98,7 @@ NS_ASSUME_NONNULL_BEGIN
 {
     [super viewDidLoad];
 
-    OWSAssert([self.navigationController isKindOfClass:[OWSNavigationController class]]);
+    OWSAssertDebug([self.navigationController isKindOfClass:[OWSNavigationController class]]);
 
     self.title = _thread.groupModel.groupName;
 
@@ -112,7 +112,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)updateTableContents
 {
-    OWSAssert(self.thread);
+    OWSAssertDebug(self.thread);
 
     OWSTableContents *contents = [OWSTableContents new];
 
@@ -156,26 +156,25 @@ NS_ASSUME_NONNULL_BEGIN
           toSection:(OWSTableSection *)section
     useVerifyAction:(BOOL)useVerifyAction
 {
-    OWSAssert(recipientIds);
-    OWSAssert(section);
+    OWSAssertDebug(recipientIds);
+    OWSAssertDebug(section);
 
     __weak ShowGroupMembersViewController *weakSelf = self;
     ContactsViewHelper *helper = self.contactsViewHelper;
     // Sort the group members using contacts manager.
-    NSArray<NSString *> *sortedRecipientIds =
-        [recipientIds sortedArrayUsingComparator:^NSComparisonResult(NSString *recipientIdA, NSString *recipientIdB) {
-            SignalAccount *signalAccountA = [helper.contactsManager signalAccountForRecipientId:recipientIdA];
-            SignalAccount *signalAccountB = [helper.contactsManager signalAccountForRecipientId:recipientIdB];
-            return [helper.contactsManager compareSignalAccount:signalAccountA withSignalAccount:signalAccountB];
-        }];
+    NSArray<NSString *> *sortedRecipientIds = [recipientIds sortedArrayUsingComparator:^NSComparisonResult(
+        NSString *recipientIdA, NSString *recipientIdB) {
+        SignalAccount *signalAccountA = [helper.contactsManager fetchOrBuildSignalAccountForRecipientId:recipientIdA];
+        SignalAccount *signalAccountB = [helper.contactsManager fetchOrBuildSignalAccountForRecipientId:recipientIdB];
+        return [helper.contactsManager compareSignalAccount:signalAccountA withSignalAccount:signalAccountB];
+    }];
     for (NSString *recipientId in sortedRecipientIds) {
         [section addItem:[OWSTableItem
                              itemWithCustomCellBlock:^{
                                  ShowGroupMembersViewController *strongSelf = weakSelf;
-                                 OWSCAssert(strongSelf);
+                                 OWSCAssertDebug(strongSelf);
 
                                  ContactTableViewCell *cell = [ContactTableViewCell new];
-                                 SignalAccount *signalAccount = [helper signalAccountForRecipientId:recipientId];
                                  OWSVerificationState verificationState =
                                      [[OWSIdentityManager sharedManager] verificationStateForRecipientId:recipientId];
                                  BOOL isVerified = verificationState == OWSVerificationStateVerified;
@@ -189,12 +188,7 @@ NS_ASSUME_NONNULL_BEGIN
                                          @"CONTACT_CELL_IS_BLOCKED", @"An indicator that a contact has been blocked.");
                                  }
 
-                                 if (signalAccount) {
-                                     [cell configureWithSignalAccount:signalAccount
-                                                      contactsManager:helper.contactsManager];
-                                 } else {
-                                     [cell configureWithRecipientId:recipientId contactsManager:helper.contactsManager];
-                                 }
+                                 [cell configureWithRecipientId:recipientId];
 
                                  if (isVerified) {
                                      [cell setAttributedSubtitle:cell.verifiedSubtitle];
@@ -248,7 +242,7 @@ NS_ASSUME_NONNULL_BEGIN
         if (verificationState == OWSVerificationStateNoLongerVerified) {
             NSData *identityKey = [identityManger identityKeyForRecipientId:recipientId];
             if (identityKey.length < 1) {
-                OWSFail(@"Missing identity key for: %@", recipientId);
+                OWSFailDebug(@"Missing identity key for: %@", recipientId);
                 continue;
             }
             [identityManger setVerificationState:OWSVerificationStateDefault
@@ -276,10 +270,10 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)didSelectRecipientId:(NSString *)recipientId
 {
-    OWSAssert(recipientId.length > 0);
+    OWSAssertDebug(recipientId.length > 0);
 
     ContactsViewHelper *helper = self.contactsViewHelper;
-    SignalAccount *signalAccount = [helper signalAccountForRecipientId:recipientId];
+    SignalAccount *_Nullable signalAccount = [helper fetchSignalAccountForRecipientId:recipientId];
 
     UIAlertController *actionSheetController =
         [UIAlertController alertControllerWithTitle:nil message:nil preferredStyle:UIAlertControllerStyleActionSheet];
@@ -398,7 +392,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)showContactInfoViewForRecipientId:(NSString *)recipientId
 {
-    OWSAssert(recipientId.length > 0);
+    OWSAssertDebug(recipientId.length > 0);
 
     [self.contactsViewHelper presentContactViewControllerForRecipientId:recipientId
                                                      fromViewController:self
@@ -407,19 +401,23 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)showConversationViewForRecipientId:(NSString *)recipientId
 {
-    OWSAssert(recipientId.length > 0);
+    OWSAssertDebug(recipientId.length > 0);
 
-    [SignalApp.sharedApp presentConversationForRecipientId:recipientId action:ConversationViewActionCompose];
+    [SignalApp.sharedApp presentConversationForRecipientId:recipientId
+                                                    action:ConversationViewActionCompose
+                                                  animated:YES];
 }
 
 - (void)callMember:(NSString *)recipientId
 {
-    [SignalApp.sharedApp presentConversationForRecipientId:recipientId action:ConversationViewActionAudioCall];
+    [SignalApp.sharedApp presentConversationForRecipientId:recipientId
+                                                    action:ConversationViewActionAudioCall
+                                                  animated:YES];
 }
 
 - (void)showSafetyNumberView:(NSString *)recipientId
 {
-    OWSAssert(recipientId.length > 0);
+    OWSAssertDebug(recipientId.length > 0);
 
     [FingerprintViewController presentFromViewController:self recipientId:recipientId];
 }
@@ -440,7 +438,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)didFinishEditingContact
 {
-    DDLogDebug(@"%@ %s", self.logTag, __PRETTY_FUNCTION__);
+    OWSLogDebug(@"");
     [self dismissViewControllerAnimated:YES completion:nil];
 }
 
@@ -449,7 +447,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)contactViewController:(CNContactViewController *)viewController
        didCompleteWithContact:(nullable CNContact *)contact
 {
-    DDLogDebug(@"%@ done editing contact.", self.logTag);
+    OWSLogDebug(@"done editing contact.");
     [self dismissViewControllerAnimated:YES completion:nil];
 }
 

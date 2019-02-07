@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 import Foundation
@@ -29,15 +29,14 @@ extension GiphyError: LocalizedError {
 // They vary in content size (i.e. width,  height), 
 // format (.jpg, .gif, .mp4, webp, etc.),
 // quality, etc.
-@objc class GiphyRendition: NSObject {
+@objc class GiphyRendition: ProxiedContentAssetDescription {
     let format: GiphyFormat
     let name: String
     let width: UInt
     let height: UInt
     let fileSize: UInt
-    let url: NSURL
 
-    init(format: GiphyFormat,
+    init?(format: GiphyFormat,
          name: String,
          width: UInt,
          height: UInt,
@@ -48,10 +47,12 @@ extension GiphyError: LocalizedError {
         self.width = width
         self.height = height
         self.fileSize = fileSize
-        self.url = url
+
+        let fileExtension = GiphyRendition.fileExtension(forFormat: format)
+        super.init(url: url, fileExtension: fileExtension)
     }
 
-    public var fileExtension: String {
+    private class func fileExtension(forFormat format: GiphyFormat) -> String {
         switch format {
         case .gif:
             return "gif"
@@ -265,9 +266,6 @@ extension GiphyError: LocalizedError {
 
     // MARK: - Properties
 
-    static let TAG = "[GiphyAPI]"
-    let TAG = "[GiphyAPI]"
-
     static let sharedInstance = GiphyAPI()
 
     // Force usage as a singleton
@@ -283,44 +281,20 @@ extension GiphyError: LocalizedError {
 
     private let kGiphyBaseURL = "https://api.giphy.com/"
 
-    public class func giphySessionConfiguration() -> URLSessionConfiguration {
-        let configuration = URLSessionConfiguration.ephemeral
-        let proxyHost = "giphy-proxy-production.whispersystems.org"
-        let proxyPort = 80
-        configuration.connectionProxyDictionary = [
-            "HTTPEnable": 1,
-            "HTTPProxy": proxyHost,
-            "HTTPPort": proxyPort,
-            "HTTPSEnable": 1,
-            "HTTPSProxy": proxyHost,
-            "HTTPSPort": proxyPort
-        ]
-        return configuration
-    }
-
     private func giphyAPISessionManager() -> AFHTTPSessionManager? {
-        guard let baseUrl = NSURL(string: kGiphyBaseURL) else {
-            Logger.error("\(TAG) Invalid base URL.")
-            return nil
-        }
-        let sessionManager = AFHTTPSessionManager(baseURL: baseUrl as URL,
-                                                  sessionConfiguration: GiphyAPI.giphySessionConfiguration())
-        sessionManager.requestSerializer = AFJSONRequestSerializer()
-        sessionManager.responseSerializer = AFJSONResponseSerializer()
-
-        return sessionManager
+        return ContentProxy.jsonSessionManager(baseUrl: kGiphyBaseURL)
     }
 
     // MARK: Search
 
     public func search(query: String, success: @escaping (([GiphyImageInfo]) -> Void), failure: @escaping ((NSError?) -> Void)) {
         guard let sessionManager = giphyAPISessionManager() else {
-            Logger.error("\(TAG) Couldn't create session manager.")
+            Logger.error("Couldn't create session manager.")
             failure(nil)
             return
         }
         guard NSURL(string: kGiphyBaseURL) != nil else {
-            Logger.error("\(TAG) Invalid base URL.")
+            Logger.error("Invalid base URL.")
             failure(nil)
             return
         }
@@ -330,17 +304,17 @@ extension GiphyError: LocalizedError {
         let kGiphyPageSize = 100
         let kGiphyPageOffset = 0
         guard let queryEncoded = query.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else {
-            Logger.error("\(TAG) Could not URL encode query: \(query).")
+            Logger.error("Could not URL encode query: \(query).")
             failure(nil)
             return
         }
         let urlString = "/v1/gifs/search?api_key=\(kGiphyApiKey)&offset=\(kGiphyPageOffset)&limit=\(kGiphyPageSize)&q=\(queryEncoded)"
 
         sessionManager.get(urlString,
-                           parameters: {},
+                           parameters: [String: AnyObject](),
                            progress: nil,
                            success: { _, value in
-                            Logger.error("\(GiphyAPI.TAG) search request succeeded")
+                            Logger.error("search request succeeded")
                             guard let imageInfos = self.parseGiphyImages(responseJson: value) else {
                                 failure(nil)
                                 return
@@ -348,7 +322,7 @@ extension GiphyError: LocalizedError {
                             success(imageInfos)
         },
                            failure: { _, error in
-                            Logger.error("\(GiphyAPI.TAG) search request failed: \(error)")
+                            Logger.error("search request failed: \(error)")
                             failure(error as NSError)
         })
     }
@@ -357,15 +331,15 @@ extension GiphyError: LocalizedError {
 
     private func parseGiphyImages(responseJson: Any?) -> [GiphyImageInfo]? {
         guard let responseJson = responseJson else {
-            Logger.error("\(TAG) Missing response.")
+            Logger.error("Missing response.")
             return nil
         }
         guard let responseDict = responseJson as? [String: Any] else {
-            Logger.error("\(TAG) Invalid response.")
+            Logger.error("Invalid response.")
             return nil
         }
         guard let imageDicts = responseDict["data"] as? [[String: Any]] else {
-            Logger.error("\(TAG) Invalid response data.")
+            Logger.error("Invalid response data.")
             return nil
         }
         return imageDicts.compactMap { imageDict in
@@ -376,21 +350,21 @@ extension GiphyError: LocalizedError {
     // Giphy API results are often incomplete or malformed, so we need to be defensive.
     private func parseGiphyImage(imageDict: [String: Any]) -> GiphyImageInfo? {
         guard let giphyId = imageDict["id"] as? String else {
-            Logger.warn("\(TAG) Image dict missing id.")
+            Logger.warn("Image dict missing id.")
             return nil
         }
         guard giphyId.count > 0 else {
-            Logger.warn("\(TAG) Image dict has invalid id.")
+            Logger.warn("Image dict has invalid id.")
             return nil
         }
         guard let renditionDicts = imageDict["images"] as? [String: Any] else {
-            Logger.warn("\(TAG) Image dict missing renditions.")
+            Logger.warn("Image dict missing renditions.")
             return nil
         }
         var renditions = [GiphyRendition]()
         for (renditionName, renditionDict) in renditionDicts {
             guard let renditionDict = renditionDict as? [String: Any] else {
-                Logger.warn("\(TAG) Invalid rendition dict.")
+                Logger.warn("Invalid rendition dict.")
                 continue
             }
             guard let rendition = parseGiphyRendition(renditionName: renditionName,
@@ -400,12 +374,12 @@ extension GiphyError: LocalizedError {
             renditions.append(rendition)
         }
         guard renditions.count > 0 else {
-            Logger.warn("\(TAG) Image has no valid renditions.")
+            Logger.warn("Image has no valid renditions.")
             return nil
         }
 
         guard let originalRendition = findOriginalRendition(renditions: renditions) else {
-            Logger.warn("\(TAG) Image has no original rendition.")
+            Logger.warn("Image has no original rendition.")
             return nil
         }
 
@@ -438,15 +412,15 @@ extension GiphyError: LocalizedError {
             return nil
         }
         guard urlString.count > 0 else {
-            Logger.warn("\(TAG) Rendition has invalid url.")
+            Logger.warn("Rendition has invalid url.")
             return nil
         }
         guard let url = NSURL(string: urlString) else {
-            Logger.warn("\(TAG) Rendition url could not be parsed.")
+            Logger.warn("Rendition url could not be parsed.")
             return nil
         }
         guard let fileExtension = url.pathExtension?.lowercased() else {
-            Logger.warn("\(TAG) Rendition url missing file extension.")
+            Logger.warn("Rendition url missing file extension.")
             return nil
         }
         var format = GiphyFormat.gif
@@ -459,7 +433,7 @@ extension GiphyError: LocalizedError {
         } else if fileExtension == "webp" {
             return nil
         } else {
-            Logger.warn("\(TAG) Invalid file extension: \(fileExtension).")
+            Logger.warn("Invalid file extension: \(fileExtension).")
             return nil
         }
 
@@ -484,7 +458,7 @@ extension GiphyError: LocalizedError {
             return nil
         }
         guard parsedValue > 0 else {
-            Logger.verbose("\(TAG) \(typeName) has non-positive \(key): \(parsedValue).")
+            Logger.verbose("\(typeName) has non-positive \(key): \(parsedValue).")
             return nil
         }
         return parsedValue

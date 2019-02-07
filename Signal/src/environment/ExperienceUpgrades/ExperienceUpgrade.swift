@@ -18,6 +18,17 @@ import SignalMessaging
         super.init(uniqueId: uniqueId)
     }
 
+    @objc
+    public override init() {
+        // This is the unfortunate seam between strict swift and fast-and-loose objc
+        // we can't leave these properties nil, since we really "don't know" that the superclass
+        // will assign them.
+        self.title = "New Feature"
+        self.body = "Bug fixes and performance improvements."
+        self.image = nil
+        super.init()
+    }
+    
     @objc public override required init(uniqueId: String?) {
         // This is the unfortunate seam between strict swift and fast-and-loose objc
         // we can't leave these properties nil, since we really "don't know" that the superclass
@@ -58,7 +69,7 @@ import SignalMessaging
             return super.storageBehaviorForProperty(withKey: propertyKey)
         } else {
             // Being conservative here in case we rename a property.
-            owsFail("unknown property \(propertyKey)")
+            owsFailDebug("unknown property \(propertyKey)")
             return super.storageBehaviorForProperty(withKey: propertyKey)
         }
     }

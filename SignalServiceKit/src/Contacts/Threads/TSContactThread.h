@@ -6,6 +6,8 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+extern NSString *const TSContactThreadPrefix;
+
 @interface TSContactThread : TSThread
 
 @property (nonatomic) BOOL hasDismissedOffers;
@@ -21,6 +23,17 @@ NS_ASSUME_NONNULL_BEGIN
 - (NSString *)contactIdentifier;
 
 + (NSString *)contactIdFromThreadId:(NSString *)threadId;
+
+// This is only exposed for tests.
+#ifdef DEBUG
++ (NSString *)threadIdFromContactId:(NSString *)contactId;
+#endif
+
+// This method can be used to get the conversation color for a given
+// recipient without using a read/write transaction to create a
+// contact thread.
++ (NSString *)conversationColorNameForRecipientId:(NSString *)recipientId
+                                      transaction:(YapDatabaseReadTransaction *)transaction;
 
 @end
 

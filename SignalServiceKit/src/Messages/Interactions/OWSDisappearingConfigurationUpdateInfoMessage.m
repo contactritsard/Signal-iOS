@@ -33,7 +33,7 @@ NS_ASSUME_NONNULL_BEGIN
     _configurationDurationSeconds = configuration.durationSeconds;
 
     // At most one should be set
-    OWSAssert(!remoteName || !createdInExistingGroup);
+    OWSAssertDebug(!remoteName || !createdInExistingGroup);
 
     _createdByRemoteName = remoteName;
     _createdInExistingGroup = createdInExistingGroup;
@@ -51,7 +51,7 @@ NS_ASSUME_NONNULL_BEGIN
 -(NSString *)previewTextWithTransaction:(YapDatabaseReadTransaction *)transaction
 {
     if (self.createdInExistingGroup) {
-        OWSAssert(self.configurationIsEnabled && self.configurationDurationSeconds > 0);
+        OWSAssertDebug(self.configurationIsEnabled && self.configurationDurationSeconds > 0);
         NSString *infoFormat = NSLocalizedString(@"DISAPPEARING_MESSAGES_CONFIGURATION_GROUP_EXISTING_FORMAT",
             @"Info Message when added to a group which has enabled disappearing messages. Embeds {{time amount}} "
             @"before messages disappear, see the *_TIME_AMOUNT strings for context.");
@@ -74,7 +74,7 @@ NS_ASSUME_NONNULL_BEGIN
             return [NSString stringWithFormat:infoFormat, self.createdByRemoteName];
         }
     } else {
-        // Changed by local request
+        // Changed by localNumber on this device or via synced transcript
         if (self.configurationIsEnabled && self.configurationDurationSeconds > 0) {
             NSString *infoFormat = NSLocalizedString(@"YOU_UPDATED_DISAPPEARING_MESSAGES_CONFIGURATION",
                 @"Info message embedding a {{time amount}}, see the *_TIME_AMOUNT strings for context.");

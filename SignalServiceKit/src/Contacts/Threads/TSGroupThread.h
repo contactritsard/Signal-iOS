@@ -29,15 +29,28 @@ extern NSString *const TSGroupThread_NotificationKey_UniqueId;
 
 + (NSString *)threadIdFromGroupId:(NSData *)groupId;
 
++ (NSString *)defaultGroupName;
+
+- (BOOL)isLocalUserInGroup;
+
 // all group threads containing recipient as a member
 + (NSArray<TSGroupThread *> *)groupThreadsWithRecipientId:(NSString *)recipientId
                                               transaction:(YapDatabaseReadWriteTransaction *)transaction;
+
+- (void)leaveGroupWithSneakyTransaction;
+- (void)leaveGroupWithTransaction:(YapDatabaseReadWriteTransaction *)transaction;
+
+- (void)softDeleteGroupThreadWithTransaction:(YapDatabaseReadWriteTransaction *)transaction;
+
+#pragma mark - Avatar
 
 - (void)updateAvatarWithAttachmentStream:(TSAttachmentStream *)attachmentStream;
 - (void)updateAvatarWithAttachmentStream:(TSAttachmentStream *)attachmentStream
                              transaction:(YapDatabaseReadWriteTransaction *)transaction;
 
 - (void)fireAvatarChangedNotification;
+
++ (ConversationColorName)defaultConversationColorNameForGroupId:(NSData *)groupId;
 
 @end
 

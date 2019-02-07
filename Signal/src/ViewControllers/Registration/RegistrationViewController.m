@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 #import "RegistrationViewController.h"
@@ -11,10 +11,10 @@
 #import "TSAccountManager.h"
 #import "UIView+OWS.h"
 #import "ViewControllerUtils.h"
-#import <SAMKeychain/SAMKeychain.h>
 #import <SignalMessaging/Environment.h>
-#import <SignalMessaging/NSString+OWS.h>
 #import <SignalMessaging/OWSNavigationController.h>
+#import <SignalServiceKit/NSString+SSK.h>
+#import <SignalServiceKit/SignalServiceKit-Swift.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -43,6 +43,17 @@ NSString *const kKeychainKey_LastRegisteredPhoneNumber = @"kKeychainKey_LastRegi
 
 @implementation RegistrationViewController
 
+#pragma mark - Dependencies
+
+- (TSAccountManager *)tsAccountManager
+{
+    OWSAssertDebug(SSKEnvironment.shared.tsAccountManager);
+    
+    return SSKEnvironment.shared.tsAccountManager;
+}
+
+#pragma mark -
+
 - (void)loadView
 {
     [super loadView];
@@ -53,7 +64,7 @@ NSString *const kKeychainKey_LastRegisteredPhoneNumber = @"kKeychainKey_LastRegi
 
     // Do any additional setup after loading the view.
     [self populateDefaultCountryNameAndCode];
-    OWSAssert([self.navigationController isKindOfClass:[OWSNavigationController class]]);
+    OWSAssertDebug([self.navigationController isKindOfClass:[OWSNavigationController class]]);
     [SignalApp.sharedApp setSignUpFlowNavigationController:(OWSNavigationController *)self.navigationController];
 }
 
@@ -81,7 +92,6 @@ NSString *const kKeychainKey_LastRegisteredPhoneNumber = @"kKeychainKey_LastRegi
     headerLabel.textColor = [UIColor whiteColor];
     headerLabel.font = [UIFont ows_mediumFontWithSize:ScaleFromIPhone5To7Plus(20.f, 24.f)];
 
-#ifdef SHOW_LEGAL_TERMS_LINK
     NSString *legalTopMatterFormat = NSLocalizedString(@"REGISTRATION_LEGAL_TOP_MATTER_FORMAT",
         @"legal disclaimer, embeds a tappable {{link title}} which is styled as a hyperlink");
     NSString *legalTopMatterLinkWord = NSLocalizedString(
@@ -106,12 +116,9 @@ NSString *const kKeychainKey_LastRegisteredPhoneNumber = @"kKeychainKey_LastRegi
     UITapGestureRecognizer *tapGesture =
         [[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(didTapLegalTerms:)];
     [legalTopMatterLabel addGestureRecognizer:tapGesture];
-#endif
 
     UIStackView *headerContent = [[UIStackView alloc] initWithArrangedSubviews:@[ headerLabel ]];
-#ifdef SHOW_LEGAL_TERMS_LINK
     [headerContent addArrangedSubview:legalTopMatterLabel];
-#endif
     headerContent.axis = UILayoutConstraintAxisVertical;
     headerContent.alignment = UIStackViewAlignmentCenter;
     headerContent.spacing = ScaleFromIPhone5To7Plus(8, 16);
@@ -195,7 +202,7 @@ NSString *const kKeychainKey_LastRegisteredPhoneNumber = @"kKeychainKey_LastRegi
     if (UIDevice.currentDevice.isShorterThanIPhone5) {
         phoneNumberTextField = [DismissableTextField new];
     } else {
-        phoneNumberTextField = [UITextField new];
+        phoneNumberTextField = [OWSTextField new];
     }
 
     phoneNumberTextField.textAlignment = NSTextAlignmentRight;
@@ -213,7 +220,7 @@ NSString *const kKeychainKey_LastRegisteredPhoneNumber = @"kKeychainKey_LastRegi
     UILabel *examplePhoneNumberLabel = [UILabel new];
     self.examplePhoneNumberLabel = examplePhoneNumberLabel;
     examplePhoneNumberLabel.font = [UIFont ows_regularFontWithSize:fontSizePoints - 2.f];
-    examplePhoneNumberLabel.textColor = [UIColor colorWithWhite:0.5f alpha:1.f];
+    examplePhoneNumberLabel.textColor = Theme.middleGrayColor;
     [contentView addSubview:examplePhoneNumberLabel];
     [examplePhoneNumberLabel autoPinTrailingToSuperviewMargin];
     [examplePhoneNumberLabel autoPinEdge:ALEdgeTop
@@ -257,7 +264,6 @@ NSString *const kKeychainKey_LastRegisteredPhoneNumber = @"kKeychainKey_LastRegi
     [spinnerView autoPinTrailingToSuperviewMarginWithInset:20.f];
     [spinnerView stopAnimating];
 
-#ifdef SHOW_LEGAL_TERMS_LINK
     NSString *bottomTermsLinkText = NSLocalizedString(@"REGISTRATION_LEGAL_TERMS_LINK",
         @"one line label below submit button on registration screen, which links to an external webpage.");
     UIButton *bottomLegalLinkButton = [UIButton new];
@@ -276,7 +282,6 @@ NSString *const kKeychainKey_LastRegisteredPhoneNumber = @"kKeychainKey_LastRegi
                             withOffset:ScaleFromIPhone5To7Plus(8, 12)];
     [bottomLegalLinkButton setCompressionResistanceHigh];
     [bottomLegalLinkButton setContentHuggingHigh];
-#endif
 }
 
 - (void)viewDidAppear:(BOOL)animated
@@ -287,12 +292,12 @@ NSString *const kKeychainKey_LastRegisteredPhoneNumber = @"kKeychainKey_LastRegi
     [self.spinnerView stopAnimating];
     [self.phoneNumberTextField becomeFirstResponder];
 
-    if ([TSAccountManager sharedInstance].isReregistering) {
+    if (self.tsAccountManager.isReregistering) {
         // If re-registering, pre-populate the country (country code, calling code, country name)
         // and phone number state.
-        NSString *_Nullable phoneNumberE164 = [TSAccountManager sharedInstance].reregisterationPhoneNumber;
+        NSString *_Nullable phoneNumberE164 = self.tsAccountManager.reregisterationPhoneNumber;
         if (!phoneNumberE164) {
-            OWSFail(@"%@ Could not resume re-registration; missing phone number.", self.logTag);
+            OWSFailDebug(@"Could not resume re-registration; missing phone number.");
         } else if ([self tryToApplyPhoneNumberE164:phoneNumberE164]) {
             // Don't let user edit their phone number while re-registering.
             self.phoneNumberTextField.enabled = NO;
@@ -302,37 +307,37 @@ NSString *const kKeychainKey_LastRegisteredPhoneNumber = @"kKeychainKey_LastRegi
 
 - (BOOL)tryToApplyPhoneNumberE164:(NSString *)phoneNumberE164
 {
-    OWSAssert(phoneNumberE164);
+    OWSAssertDebug(phoneNumberE164);
 
     if (phoneNumberE164.length < 1) {
-        OWSFail(@"%@ Could not resume re-registration; invalid phoneNumberE164.", self.logTag);
+        OWSFailDebug(@"Could not resume re-registration; invalid phoneNumberE164.");
         return NO;
     }
     PhoneNumber *_Nullable parsedPhoneNumber = [PhoneNumber phoneNumberFromE164:phoneNumberE164];
     if (!parsedPhoneNumber) {
-        OWSFail(@"%@ Could not resume re-registration; couldn't parse phoneNumberE164.", self.logTag);
+        OWSFailDebug(@"Could not resume re-registration; couldn't parse phoneNumberE164.");
         return NO;
     }
     NSNumber *_Nullable callingCode = parsedPhoneNumber.getCountryCode;
     if (!callingCode) {
-        OWSFail(@"%@ Could not resume re-registration; missing callingCode.", self.logTag);
+        OWSFailDebug(@"Could not resume re-registration; missing callingCode.");
         return NO;
     }
     NSString *callingCodeText = [NSString stringWithFormat:@"+%d", callingCode.intValue];
     NSArray<NSString *> *_Nullable countryCodes =
         [PhoneNumberUtil.sharedThreadLocal countryCodesFromCallingCode:callingCodeText];
     if (countryCodes.count < 1) {
-        OWSFail(@"%@ Could not resume re-registration; unknown countryCode.", self.logTag);
+        OWSFailDebug(@"Could not resume re-registration; unknown countryCode.");
         return NO;
     }
     NSString *countryCode = countryCodes.firstObject;
     NSString *_Nullable countryName = [PhoneNumberUtil countryNameFromCountryCode:countryCode];
     if (!countryName) {
-        OWSFail(@"%@ Could not resume re-registration; unknown countryName.", self.logTag);
+        OWSFailDebug(@"Could not resume re-registration; unknown countryName.");
         return NO;
     }
     if (![phoneNumberE164 hasPrefix:callingCodeText]) {
-        OWSFail(@"%@ Could not resume re-registration; non-matching calling code.", self.logTag);
+        OWSFailDebug(@"Could not resume re-registration; non-matching calling code.");
         return NO;
     }
     NSString *phoneNumberWithoutCallingCode = [phoneNumberE164 substringFromIndex:callingCodeText.length];
@@ -368,9 +373,9 @@ NSString *const kKeychainKey_LastRegisteredPhoneNumber = @"kKeychainKey_LastRegi
                   countryCode:(NSString *)countryCode
 {
     OWSAssertIsOnMainThread();
-    OWSAssert(countryName.length > 0);
-    OWSAssert(callingCode.length > 0);
-    OWSAssert(countryCode.length > 0);
+    OWSAssertDebug(countryName.length > 0);
+    OWSAssertDebug(callingCode.length > 0);
+    OWSAssertDebug(countryCode.length > 0);
 
     _countryCode = countryCode;
     _callingCode = callingCode;
@@ -403,7 +408,8 @@ NSString *const kKeychainKey_LastRegisteredPhoneNumber = @"kKeychainKey_LastRegi
     NSString *phoneNumber = [NSString stringWithFormat:@"%@%@", _callingCode, phoneNumberText];
     PhoneNumber *localNumber = [PhoneNumber tryParsePhoneNumberFromUserSpecifiedText:phoneNumber];
     NSString *parsedPhoneNumber = localNumber.toE164;
-    if (parsedPhoneNumber.length < 1) {
+    if (parsedPhoneNumber.length < 1
+        || ![[PhoneNumberValidator new] isValidForRegistrationWithPhoneNumber:localNumber]) {
         [OWSAlerts showAlertWithTitle:
                        NSLocalizedString(@"REGISTRATION_VIEW_INVALID_PHONE_NUMBER_ALERT_TITLE",
                            @"Title of alert indicating that users needs to enter a valid phone number to register.")
@@ -441,7 +447,7 @@ NSString *const kKeychainKey_LastRegisteredPhoneNumber = @"kKeychainKey_LastRegi
     [self.phoneNumberTextField resignFirstResponder];
 
     __weak RegistrationViewController *weakSelf = self;
-    [TSAccountManager registerWithPhoneNumber:parsedPhoneNumber
+    [self.tsAccountManager registerWithPhoneNumber:parsedPhoneNumber
         success:^{
             OWSProdInfo([OWSAnalyticsEvents registrationRegisteredPhoneNumber]);
 
@@ -472,7 +478,7 @@ NSString *const kKeychainKey_LastRegisteredPhoneNumber = @"kKeychainKey_LastRegi
 
 - (void)countryCodeRowWasTapped:(UIGestureRecognizer *)sender
 {
-    if (TSAccountManager.sharedInstance.isReregistering) {
+    if (self.tsAccountManager.isReregistering) {
         // Don't let user edit their phone number while re-registering.
         return;
     }
@@ -491,6 +497,7 @@ NSString *const kKeychainKey_LastRegisteredPhoneNumber = @"kKeychainKey_LastRegi
 {
     CountryCodeViewController *countryCodeController = [CountryCodeViewController new];
     countryCodeController.countryCodeDelegate = self;
+    countryCodeController.interfaceOrientationMask = UIInterfaceOrientationMaskPortrait;
     OWSNavigationController *navigationController =
         [[OWSNavigationController alloc] initWithRootViewController:countryCodeController];
     [self presentViewController:navigationController animated:YES completion:nil];
@@ -510,9 +517,9 @@ NSString *const kKeychainKey_LastRegisteredPhoneNumber = @"kKeychainKey_LastRegi
                       countryName:(NSString *)countryName
                       callingCode:(NSString *)callingCode
 {
-    OWSAssert(countryCode.length > 0);
-    OWSAssert(countryName.length > 0);
-    OWSAssert(callingCode.length > 0);
+    OWSAssertDebug(countryCode.length > 0);
+    OWSAssertDebug(countryName.length > 0);
+    OWSAssertDebug(callingCode.length > 0);
 
     [self updateCountryWithName:countryName callingCode:callingCode countryCode:countryCode];
 
@@ -562,28 +569,32 @@ NSString *const kKeychainKey_LastRegisteredPhoneNumber = @"kKeychainKey_LastRegi
 
 - (NSString *_Nullable)debugValueForKey:(NSString *)key
 {
-    OWSCAssert([NSThread isMainThread]);
-    OWSCAssert(key.length > 0);
+    OWSCAssertDebug([NSThread isMainThread]);
+    OWSCAssertDebug(key.length > 0);
 
     NSError *error;
-    NSString *value = [SAMKeychain passwordForService:kKeychainService_LastRegistered account:key error:&error];
-    if (value && !error) {
-        return value;
+    NSString *_Nullable value =
+        [CurrentAppContext().keychainStorage stringForService:kKeychainService_LastRegistered key:key error:&error];
+    if (error || !value) {
+        OWSLogWarn(@"Could not retrieve 'last registered' value from keychain: %@.", error);
+        return nil;
     }
-    return nil;
+    return value;
 }
 
 - (void)setDebugValue:(NSString *)value forKey:(NSString *)key
 {
-    OWSCAssert([NSThread isMainThread]);
-    OWSCAssert(key.length > 0);
-    OWSCAssert(value.length > 0);
+    OWSCAssertDebug([NSThread isMainThread]);
+    OWSCAssertDebug(key.length > 0);
+    OWSCAssertDebug(value.length > 0);
 
     NSError *error;
-    [SAMKeychain setAccessibilityType:kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly];
-    BOOL success = [SAMKeychain setPassword:value forService:kKeychainService_LastRegistered account:key error:&error];
+    BOOL success = [CurrentAppContext().keychainStorage setString:value
+                                                          service:kKeychainService_LastRegistered
+                                                              key:key
+                                                            error:&error];
     if (!success || error) {
-        DDLogError(@"%@ Error persisting 'last registered' value in keychain: %@", self.logTag, error);
+        OWSLogError(@"Error persisting 'last registered' value in keychain: %@", error);
     }
 }
 
@@ -612,6 +623,13 @@ NSString *const kKeychainKey_LastRegisteredPhoneNumber = @"kKeychainKey_LastRegi
 - (UIStatusBarStyle)preferredStatusBarStyle
 {
     return UIStatusBarStyleLightContent;
+}
+
+#pragma mark - Orientation
+
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations
+{
+    return UIInterfaceOrientationMaskPortrait;
 }
 
 @end

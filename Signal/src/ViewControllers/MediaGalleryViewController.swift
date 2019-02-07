@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 import Foundation
@@ -8,61 +8,111 @@ public enum GalleryDirection {
     case before, after, around
 }
 
-public struct MediaGalleryItem: Equatable, Hashable {
-    let logTag = "[MediaGalleryItem]"
+class MediaGalleryAlbum {
 
+    private var originalItems: [MediaGalleryItem]
+    var items: [MediaGalleryItem] {
+        get {
+            guard let mediaGalleryDataSource = self.mediaGalleryDataSource else {
+                owsFailDebug("mediaGalleryDataSource was unexpectedly nil")
+                return originalItems
+            }
+
+            return originalItems.filter { !mediaGalleryDataSource.deletedGalleryItems.contains($0) }
+        }
+    }
+
+    weak var mediaGalleryDataSource: MediaGalleryDataSource?
+
+    init(items: [MediaGalleryItem]) {
+        self.originalItems = items
+    }
+
+    func add(item: MediaGalleryItem) {
+        guard !originalItems.contains(item) else {
+            return
+        }
+
+        originalItems.append(item)
+        originalItems.sort { (lhs, rhs) -> Bool in
+            return lhs.albumIndex < rhs.albumIndex
+        }
+    }
+}
+
+public class MediaGalleryItem: Equatable, Hashable {
     let message: TSMessage
     let attachmentStream: TSAttachmentStream
     let galleryDate: GalleryDate
+    let captionForDisplay: String?
+    let albumIndex: Int
+    var album: MediaGalleryAlbum?
+    let orderingKey: MediaGalleryItemOrderingKey
 
     init(message: TSMessage, attachmentStream: TSAttachmentStream) {
         self.message = message
         self.attachmentStream = attachmentStream
+        self.captionForDisplay = attachmentStream.caption?.filterForDisplay
         self.galleryDate = GalleryDate(message: message)
+        self.albumIndex = message.attachmentIds.index(of: attachmentStream.uniqueId!)
+        self.orderingKey = MediaGalleryItemOrderingKey(messageSortKey: message.sortId, attachmentSortKey: albumIndex)
     }
 
     var isVideo: Bool {
-        return attachmentStream.isVideo()
+        return attachmentStream.isVideo
     }
 
     var isAnimated: Bool {
-        return attachmentStream.isAnimated()
+        return attachmentStream.isAnimated
     }
 
     var isImage: Bool {
-        return attachmentStream.isImage()
+        return attachmentStream.isImage
     }
 
-    var thumbnailImage: UIImage {
-        guard let image = attachmentStream.thumbnailImage() else {
-            owsFail("\(logTag) in \(#function) unexpectedly unable to build attachment thumbnail")
-            return UIImage()
-        }
-
-        return image
+    var imageSize: CGSize {
+        return attachmentStream.imageSize()
     }
 
-    var fullSizedImage: UIImage {
-        guard let image = attachmentStream.image() else {
-            owsFail("\(logTag) in \(#function) unexpectedly unable to build attachment image")
-            return UIImage()
-        }
-
-        return image
+    public typealias AsyncThumbnailBlock = (UIImage) -> Void
+    func thumbnailImage(async:@escaping AsyncThumbnailBlock) -> UIImage? {
+        return attachmentStream.thumbnailImageSmall(success: async, failure: {})
     }
 
     // MARK: Equatable
 
     public static func == (lhs: MediaGalleryItem, rhs: MediaGalleryItem) -> Bool {
-        return lhs.message.uniqueId == rhs.message.uniqueId
+        return lhs.attachmentStream.uniqueId == rhs.attachmentStream.uniqueId
     }
 
     // MARK: Hashable
 
     public var hashValue: Int {
-        return message.hashValue
+        return attachmentStream.uniqueId?.hashValue ?? attachmentStream.hashValue
     }
 
+    // MARK: Sorting
+
+    struct MediaGalleryItemOrderingKey: Comparable {
+        let messageSortKey: UInt64
+        let attachmentSortKey: Int
+
+        // MARK: Comparable
+
+        static func < (lhs: MediaGalleryItem.MediaGalleryItemOrderingKey, rhs: MediaGalleryItem.MediaGalleryItemOrderingKey) -> Bool {
+            if lhs.messageSortKey < rhs.messageSortKey {
+                return true
+            }
+
+            if lhs.messageSortKey == rhs.messageSortKey {
+                if lhs.attachmentSortKey < rhs.attachmentSortKey {
+                    return true
+                }
+            }
+
+            return false
+        }
+    }
 }
 
 public struct GalleryDate: Hashable, Comparable, Equatable {
@@ -70,7 +120,7 @@ public struct GalleryDate: Hashable, Comparable, Equatable {
     let month: Int
 
     init(message: TSMessage) {
-        let date = message.dateForSorting()
+        let date = message.receivedAtDate()
 
         self.year = Calendar.current.component(.year, from: date)
         self.month = Calendar.current.component(.month, from: date)
@@ -139,7 +189,7 @@ public struct GalleryDate: Hashable, Comparable, Equatable {
         return month.hashValue ^ year.hashValue
     }
 
-    // Mark: Comparable
+    // MARK: Comparable
 
     public static func < (lhs: GalleryDate, rhs: GalleryDate) -> Bool {
         if lhs.year != rhs.year {
@@ -168,6 +218,9 @@ protocol MediaGalleryDataSource: class {
     var sections: [GalleryDate: [MediaGalleryItem]] { get }
     var sectionDates: [GalleryDate] { get }
 
+    var deletedAttachments: Set<TSAttachment> { get }
+    var deletedGalleryItems: Set<MediaGalleryItem> { get }
+
     func ensureGalleryItemsLoaded(_ direction: GalleryDirection, item: MediaGalleryItem, amount: UInt, completion: ((IndexSet, [IndexPath]) -> Void)?)
 
     func galleryItem(before currentItem: MediaGalleryItem) -> MediaGalleryItem?
@@ -184,62 +237,34 @@ protocol MediaGalleryDataSourceDelegate: class {
     func mediaGalleryDataSource(_ mediaGalleryDataSource: MediaGalleryDataSource, deletedSections: IndexSet, deletedItems: [IndexPath])
 }
 
-class MediaGalleryViewController: OWSNavigationController, MediaGalleryDataSource, MediaTileViewControllerDelegate {
+class MediaGalleryNavigationController: OWSNavigationController {
 
-    private var pageViewController: MediaPageViewController?
-
-    private let uiDatabaseConnection: YapDatabaseConnection
-    private let editingDatabaseConnection: YapDatabaseConnection
-    private let mediaGalleryFinder: OWSMediaGalleryFinder
-
-    private var initialDetailItem: MediaGalleryItem?
-    private let thread: TSThread
-    private let options: MediaGalleryOption
-
-    // we start with a small range size for quick loading.
-    private let fetchRangeSize: UInt = 10
-
-    deinit {
-        Logger.debug("\(logTag) deinit")
-    }
-
-    @objc
-    init(thread: TSThread, uiDatabaseConnection: YapDatabaseConnection, options: MediaGalleryOption = []) {
-        self.thread = thread
-        assert(uiDatabaseConnection.isInLongLivedReadTransaction())
-        self.uiDatabaseConnection = uiDatabaseConnection
-
-        self.editingDatabaseConnection = OWSPrimaryStorage.shared().newDatabaseConnection()
-
-        self.options = options
-        self.mediaGalleryFinder = OWSMediaGalleryFinder(thread: thread)
-
-        super.init(nibName: nil, bundle: nil)
-    }
-
-    required init?(coder aDecoder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
+    var presentationView: UIImageView!
+    var retainUntilDismissed: MediaGallery?
 
     // HACK: Though we don't have an input accessory view, the VC we are presented above (ConversationVC) does.
     // If the app is backgrounded and then foregrounded, when OWSWindowManager calls mainWindow.makeKeyAndVisible
     // the ConversationVC's inputAccessoryView will appear *above* us unless we'd previously become first responder.
     override public var canBecomeFirstResponder: Bool {
-        Logger.debug("\(self.logTag) in \(#function)")
+        Logger.debug("")
         return true
     }
 
     override public func becomeFirstResponder() -> Bool {
-        Logger.debug("\(self.logTag) in \(#function)")
+        Logger.debug("")
         return super.becomeFirstResponder()
     }
 
     override public func resignFirstResponder() -> Bool {
-        Logger.debug("\(self.logTag) in \(#function)")
+        Logger.debug("")
         return super.resignFirstResponder()
     }
 
     // MARK: View Lifecycle
+
+    override var preferredStatusBarStyle: UIStatusBarStyle {
+        return .lightContent
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -260,6 +285,65 @@ class MediaGalleryViewController: OWSNavigationController, MediaGalleryDataSourc
         presentationView.layer.minificationFilter = kCAFilterTrilinear
         presentationView.layer.magnificationFilter = kCAFilterTrilinear
         presentationView.contentMode = .scaleAspectFit
+
+        guard let navigationBar = self.navigationBar as? OWSNavigationBar else {
+            owsFailDebug("navigationBar had unexpected class: \(self.navigationBar)")
+            return
+        }
+
+        navigationBar.overrideTheme(type: .alwaysDark)
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        // If the user's device is already rotated, try to respect that by rotating to landscape now
+        UIViewController.attemptRotationToDeviceOrientation()
+    }
+
+    // MARK: Orientation
+
+    public override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+        return .allButUpsideDown
+    }
+}
+
+@objc
+class MediaGallery: NSObject, MediaGalleryDataSource, MediaTileViewControllerDelegate {
+
+    @objc
+    weak public var navigationController: MediaGalleryNavigationController!
+
+    var deletedAttachments: Set<TSAttachment> = Set()
+    var deletedGalleryItems: Set<MediaGalleryItem> = Set()
+
+    private var pageViewController: MediaPageViewController?
+
+    private let uiDatabaseConnection: YapDatabaseConnection
+    private let editingDatabaseConnection: YapDatabaseConnection
+    private let mediaGalleryFinder: OWSMediaGalleryFinder
+
+    private var initialDetailItem: MediaGalleryItem?
+    private let thread: TSThread
+    private let options: MediaGalleryOption
+
+    // we start with a small range size for quick loading.
+    private let fetchRangeSize: UInt = 10
+
+    deinit {
+        Logger.debug("")
+    }
+
+    @objc
+    init(thread: TSThread, uiDatabaseConnection: YapDatabaseConnection, options: MediaGalleryOption = []) {
+        self.thread = thread
+        assert(uiDatabaseConnection.isInLongLivedReadTransaction())
+        self.uiDatabaseConnection = uiDatabaseConnection
+
+        self.editingDatabaseConnection = OWSPrimaryStorage.shared().newDatabaseConnection()
+
+        self.options = options
+        self.mediaGalleryFinder = OWSMediaGalleryFinder(thread: thread)
+        super.init()
     }
 
     // MARK: Present/Dismiss
@@ -269,21 +353,20 @@ class MediaGalleryViewController: OWSNavigationController, MediaGalleryDataSourc
     }
 
     private var replacingView: UIView?
-    private var presentationView: UIImageView!
     private var presentationViewConstraints: [NSLayoutConstraint] = []
 
     // TODO rename to replacingOriginRect
     private var originRect: CGRect?
 
     @objc
-    public func presentDetailView(fromViewController: UIViewController, mediaMessage: TSMessage, replacingView: UIView) {
+    public func presentDetailView(fromViewController: UIViewController, mediaAttachment: TSAttachment, replacingView: UIView) {
         var galleryItem: MediaGalleryItem?
         uiDatabaseConnection.read { transaction in
-            galleryItem = self.buildGalleryItem(message: mediaMessage, transaction: transaction)!
+            galleryItem = self.buildGalleryItem(attachment: mediaAttachment, transaction: transaction)
         }
 
         guard let initialDetailItem = galleryItem else {
-            owsFail("\(logTag) in \(#function) unexpectedly failed to build initialDetailItem.")
+            owsFailDebug("unexpectedly failed to build initialDetailItem.")
             return
         }
 
@@ -294,13 +377,23 @@ class MediaGalleryViewController: OWSNavigationController, MediaGalleryDataSourc
         // For a speedy load, we only fetch a few items on either side of
         // the initial message
         ensureGalleryItemsLoaded(.around, item: initialDetailItem, amount: 10)
+
+        // We lazily load media into the gallery, but with large albums, we want to be sure
+        // we load all the media required to render the album's media rail.
+        ensureAlbumEntirelyLoaded(galleryItem: initialDetailItem)
+
         self.initialDetailItem = initialDetailItem
 
         let pageViewController = MediaPageViewController(initialItem: initialDetailItem, mediaGalleryDataSource: self, uiDatabaseConnection: self.uiDatabaseConnection, options: self.options)
         self.addDataSourceDelegate(pageViewController)
 
         self.pageViewController = pageViewController
-        self.setViewControllers([pageViewController], animated: false)
+
+        let navController = MediaGalleryNavigationController()
+        self.navigationController = navController
+        navController.retainUntilDismissed = self
+
+        navigationController.setViewControllers([pageViewController], animated: false)
 
         self.replacingView = replacingView
 
@@ -308,13 +401,22 @@ class MediaGalleryViewController: OWSNavigationController, MediaGalleryDataSourc
         self.originRect = convertedRect
 
         // loadView hasn't necessarily been called yet.
-        self.loadViewIfNeeded()
-        self.presentationView.image = initialDetailItem.fullSizedImage
+        navigationController.loadViewIfNeeded()
+
+        navigationController.presentationView.image = initialDetailItem.attachmentStream.thumbnailImageLarge(success: { [weak self] (image) in
+            guard let strongSelf = self else {
+                return
+            }
+            strongSelf.navigationController.presentationView.image = image
+            }, failure: {
+                Logger.warn("Could not load presentation image.")
+        })
+
         self.applyInitialMediaViewConstraints()
 
         // Restore presentationView.alpha in case a previous dismiss left us in a bad state.
-        self.setNavigationBarHidden(false, animated: false)
-        self.presentationView.alpha = 1
+        navigationController.setNavigationBarHidden(false, animated: false)
+        navigationController.presentationView.alpha = 1
 
         // We want to animate the tapped media from it's position in the previous VC
         // to it's resting place in the center of this view controller.
@@ -327,32 +429,32 @@ class MediaGalleryViewController: OWSNavigationController, MediaGalleryDataSourc
         // 2. For Video views, the AVPlayerLayer content does not scale with the presentation animation. So you instead get a full scale
         //    video, wherein only the cropping is animated.
         // Using a simple image view allows us to address both these problems relatively easily.
-        self.view.alpha = 0.0
+        navigationController.view.alpha = 0.0
 
         guard let detailView = pageViewController.view else {
-            owsFail("\(logTag) in \(#function) detailView was unexpectedly nil")
+            owsFailDebug("detailView was unexpectedly nil")
             return
         }
 
         // At this point our media view should be overlayed perfectly
         // by our presentationView. Swapping them out should be imperceptible.
-        self.presentationView.isHidden = false
+        navigationController.presentationView.isHidden = false
         // We don't hide the pageViewController entirely - e.g. we want the toolbars to fade in.
         pageViewController.currentViewController.view.isHidden = true
         detailView.backgroundColor = .clear
-        self.view.backgroundColor = .clear
+        navigationController.view.backgroundColor = .clear
 
-        self.presentationView.layer.cornerRadius = kOWSMessageCellCornerRadius_Small
+        navigationController.presentationView.layer.cornerRadius = kOWSMessageCellCornerRadius_Small
 
-        fromViewController.present(self, animated: false) {
+        fromViewController.present(navigationController, animated: false) {
 
             // 1. Fade in the entire view.
             UIView.animate(withDuration: 0.1) {
                 self.replacingView?.alpha = 0.0
-                self.view.alpha = 1.0
+                self.navigationController.view.alpha = 1.0
             }
 
-            self.presentationView.superview?.layoutIfNeeded()
+            self.navigationController.presentationView.superview?.layoutIfNeeded()
             self.applyFinalMediaViewConstraints()
 
             // 2. Animate imageView from it's initial position, which should match where it was
@@ -363,20 +465,20 @@ class MediaGalleryViewController: OWSNavigationController, MediaGalleryDataSourc
                            options: .curveEaseOut,
                            animations: {
 
-                            self.presentationView.layer.cornerRadius = 0
-                            self.presentationView.superview?.layoutIfNeeded()
+                            self.navigationController.presentationView.layer.cornerRadius = 0
+                            self.navigationController.presentationView.superview?.layoutIfNeeded()
 
                             // fade out content behind the pageViewController
                             // and behind the presentation view
-                            self.view.backgroundColor = .white
+                            self.navigationController.view.backgroundColor = Theme.darkThemeBackgroundColor
             },
                            completion: { (_: Bool) in
                             // At this point our presentation view should be overlayed perfectly
                             // with our media view. Swapping them out should be imperceptible.
                             pageViewController.currentViewController.view.isHidden = false
-                            self.presentationView.isHidden = true
+                            self.navigationController.presentationView.isHidden = true
 
-                            self.view.isUserInteractionEnabled = true
+                            self.navigationController.view.isUserInteractionEnabled = true
 
                             pageViewController.wasPresented()
 
@@ -387,7 +489,7 @@ class MediaGalleryViewController: OWSNavigationController, MediaGalleryDataSourc
                             //
                             // We don't need to do this when pushing VCs onto the SignalsNavigationController - only when
                             // presenting directly from ConversationVC.
-                            _ = self.becomeFirstResponder()
+                            _ = self.navigationController.becomeFirstResponder()
             })
         }
     }
@@ -400,8 +502,8 @@ class MediaGalleryViewController: OWSNavigationController, MediaGalleryDataSourc
     func pushTileView(fromNavController: OWSNavigationController) {
         var mostRecentItem: MediaGalleryItem?
         self.uiDatabaseConnection.read { transaction in
-            if let message = self.mediaGalleryFinder.mostRecentMediaMessage(transaction: transaction) {
-                mostRecentItem = self.buildGalleryItem(message: message, transaction: transaction)
+            if let attachment = self.mediaGalleryFinder.mostRecentMediaAttachment(transaction: transaction) {
+                mostRecentItem = self.buildGalleryItem(attachment: attachment, transaction: transaction)
             }
         }
 
@@ -423,7 +525,7 @@ class MediaGalleryViewController: OWSNavigationController, MediaGalleryDataSourc
         } else {
             // If from conversation view
             mediaTileViewController.focusedItem = focusedItem
-            self.pushViewController(mediaTileViewController, animated: true)
+            navigationController.pushViewController(mediaTileViewController, animated: true)
         }
     }
 
@@ -455,38 +557,56 @@ class MediaGalleryViewController: OWSNavigationController, MediaGalleryDataSourc
             //
 
             guard let pageViewController = self.pageViewController else {
-                owsFail("\(logTag) in \(#function) pageViewController was unexpectedly nil")
-                self.dismiss(animated: true)
+                owsFailDebug("pageViewController was unexpectedly nil")
+                self.navigationController.dismiss(animated: true)
 
                 return
             }
 
-            pageViewController.currentItem = mediaGalleryItem
+            pageViewController.setCurrentItem(mediaGalleryItem, direction: .forward, animated: false)
             pageViewController.willBePresentedAgain()
 
             // TODO fancy zoom animation
-            self.popViewController(animated: true)
+            self.navigationController.popViewController(animated: true)
         }
     }
 
-    public func dismissMediaDetailViewController(_ mediaPageViewController: MediaPageViewController, animated isAnimated: Bool, completion: (() -> Void)?) {
-        self.view.isUserInteractionEnabled = false
-        UIApplication.shared.isStatusBarHidden = false
+    public func dismissMediaDetailViewController(_ mediaPageViewController: MediaPageViewController, animated isAnimated: Bool, completion completionParam: (() -> Void)?) {
+
+        guard let presentingViewController = self.navigationController.presentingViewController else {
+            owsFailDebug("presentingController was unexpectedly nil")
+            return
+        }
+
+        let completion = {
+            completionParam?()
+            UIApplication.shared.isStatusBarHidden = false
+            presentingViewController.setNeedsStatusBarAppearanceUpdate()
+        }
+
+        navigationController.view.isUserInteractionEnabled = false
 
         guard let detailView = mediaPageViewController.view else {
-            owsFail("\(logTag) in \(#function) detailView was unexpectedly nil")
-            self.presentingViewController?.dismiss(animated: false, completion: completion)
+            owsFailDebug("detailView was unexpectedly nil")
+            self.navigationController.presentingViewController?.dismiss(animated: false, completion: completion)
             return
         }
 
         mediaPageViewController.currentViewController.view.isHidden = true
-        self.presentationView.isHidden = false
+        navigationController.presentationView.isHidden = false
 
         // Move the presentationView back to it's initial position, i.e. where
         // it sits on the screen in the conversation view.
         let changedItems = currentItem != self.initialDetailItem
         if changedItems {
-            self.presentationView.image = currentItem.fullSizedImage
+            navigationController.presentationView.image = currentItem.attachmentStream.thumbnailImageLarge(success: { [weak self] (image) in
+                guard let strongSelf = self else {
+                    return
+                }
+                strongSelf.navigationController.presentationView.image = image
+                }, failure: {
+                    Logger.warn("Could not load presentation image.")
+            })
             self.applyOffscreenMediaViewConstraints()
         } else {
             self.applyInitialMediaViewConstraints()
@@ -498,21 +618,15 @@ class MediaGalleryViewController: OWSNavigationController, MediaGalleryDataSourc
                            options: .curveEaseOut,
                            animations: {
                             // Move back over it's original location
-                            self.presentationView.superview?.layoutIfNeeded()
+                            self.navigationController.presentationView.superview?.layoutIfNeeded()
 
                             detailView.alpha = 0
 
                             if changedItems {
-                                self.presentationView.alpha = 0
+                                self.navigationController.presentationView.alpha = 0
                             } else {
-                                self.presentationView.layer.cornerRadius = kOWSMessageCellCornerRadius_Small
+                                self.navigationController.presentationView.layer.cornerRadius = kOWSMessageCellCornerRadius_Small
                             }
-            },
-                           completion: { (_: Bool) in
-                            // In case user has hidden bars, which changes background to black.
-                            // We don't want to change this while detailView is visible, lest
-                            // we obscure out the presentationView
-                            detailView.backgroundColor = .white
             })
 
             // This intentionally overlaps the previous animation a bit
@@ -521,25 +635,25 @@ class MediaGalleryViewController: OWSNavigationController, MediaGalleryDataSourc
                            options: .curveEaseInOut,
                            animations: {
                             guard let replacingView = self.replacingView else {
-                                owsFail("\(self.logTag) in \(#function) replacingView was unexpectedly nil")
-                                self.presentingViewController?.dismiss(animated: false, completion: completion)
+                                owsFailDebug("replacingView was unexpectedly nil")
+                                presentingViewController.dismiss(animated: false, completion: completion)
                                 return
                             }
                             // fade out content and toolbars
-                            self.view.alpha = 0.0
+                            self.navigationController.view.alpha = 0.0
                             replacingView.alpha = 1.0
             },
                            completion: { (_: Bool) in
-                            self.presentingViewController?.dismiss(animated: false, completion: completion)
+                            presentingViewController.dismiss(animated: false, completion: completion)
             })
         } else {
             guard let replacingView = self.replacingView else {
-                owsFail("\(self.logTag) in \(#function) replacingView was unexpectedly nil")
-                self.presentingViewController?.dismiss(animated: false, completion: completion)
+                owsFailDebug("replacingView was unexpectedly nil")
+                presentingViewController.dismiss(animated: false, completion: completion)
                 return
             }
             replacingView.alpha = 1.0
-            self.presentingViewController?.dismiss(animated: false, completion: completion)
+            presentingViewController.dismiss(animated: false, completion: completion)
         }
     }
 
@@ -550,21 +664,21 @@ class MediaGalleryViewController: OWSNavigationController, MediaGalleryDataSourc
         }
 
         guard let originRect = self.originRect else {
-            owsFail("\(logTag) in \(#function) originRect was unexpectedly nil")
+            owsFailDebug("originRect was unexpectedly nil")
             return
         }
 
-        guard let presentationSuperview = self.presentationView.superview else {
-            owsFail("\(logTag) in \(#function) presentationView.superview was unexpectedly nil")
+        guard let presentationSuperview = navigationController.presentationView.superview else {
+            owsFailDebug("presentationView.superview was unexpectedly nil")
             return
         }
 
         let convertedRect: CGRect = presentationSuperview.convert(originRect, from: UIApplication.shared.keyWindow)
 
-        self.presentationViewConstraints += self.presentationView.autoSetDimensions(to: convertedRect.size)
+        self.presentationViewConstraints += navigationController.presentationView.autoSetDimensions(to: convertedRect.size)
         self.presentationViewConstraints += [
-            self.presentationView.autoPinEdge(toSuperviewEdge: .top, withInset: convertedRect.origin.y),
-            self.presentationView.autoPinEdge(toSuperviewEdge: .left, withInset: convertedRect.origin.x)
+            navigationController.presentationView.autoPinEdge(toSuperviewEdge: .top, withInset: convertedRect.origin.y),
+            navigationController.presentationView.autoPinEdge(toSuperviewEdge: .left, withInset: convertedRect.origin.x)
         ]
     }
 
@@ -575,10 +689,10 @@ class MediaGalleryViewController: OWSNavigationController, MediaGalleryDataSourc
         }
 
         self.presentationViewConstraints = [
-            self.presentationView.autoPinEdge(toSuperviewEdge: .leading),
-            self.presentationView.autoPinEdge(toSuperviewEdge: .top),
-            self.presentationView.autoPinEdge(toSuperviewEdge: .trailing),
-            self.presentationView.autoPinEdge(toSuperviewEdge: .bottom)
+            navigationController.presentationView.autoPinEdge(toSuperviewEdge: .leading),
+            navigationController.presentationView.autoPinEdge(toSuperviewEdge: .top),
+            navigationController.presentationView.autoPinEdge(toSuperviewEdge: .trailing),
+            navigationController.presentationView.autoPinEdge(toSuperviewEdge: .bottom)
         ]
     }
 
@@ -589,9 +703,9 @@ class MediaGalleryViewController: OWSNavigationController, MediaGalleryDataSourc
         }
 
         self.presentationViewConstraints += [
-            self.presentationView.autoPinEdge(toSuperviewEdge: .leading),
-            self.presentationView.autoPinEdge(toSuperviewEdge: .trailing),
-            self.presentationView.autoPinEdge(.top, to: .bottom, of: self.view)
+            navigationController.presentationView.autoPinEdge(toSuperviewEdge: .leading),
+            navigationController.presentationView.autoPinEdge(toSuperviewEdge: .trailing),
+            navigationController.presentationView.autoPinEdge(.top, to: .bottom, of: self.navigationController.view)
         ]
     }
 
@@ -612,19 +726,54 @@ class MediaGalleryViewController: OWSNavigationController, MediaGalleryDataSourc
     var hasFetchedOldest = false
     var hasFetchedMostRecent = false
 
-    func buildGalleryItem(message: TSMessage, transaction: YapDatabaseReadTransaction) -> MediaGalleryItem? {
-        guard let attachmentStream = message.attachment(with: transaction) as? TSAttachmentStream else {
-            owsFail("\(self.logTag) in \(#function) attachment was unexpectedly empty")
+    func buildGalleryItem(attachment: TSAttachment, transaction: YapDatabaseReadTransaction) -> MediaGalleryItem? {
+        guard let attachmentStream = attachment as? TSAttachmentStream else {
+            owsFailDebug("gallery doesn't yet support showing undownloaded attachments")
             return nil
         }
 
-        return MediaGalleryItem(message: message, attachmentStream: attachmentStream)
+        guard let message = attachmentStream.fetchAlbumMessage(with: transaction) else {
+            owsFailDebug("message was unexpectedly nil")
+            return nil
+        }
+
+        let galleryItem = MediaGalleryItem(message: message, attachmentStream: attachmentStream)
+        galleryItem.album = getAlbum(item: galleryItem)
+
+        return galleryItem
+    }
+
+    func ensureAlbumEntirelyLoaded(galleryItem: MediaGalleryItem) {
+        ensureGalleryItemsLoaded(.before, item: galleryItem, amount: UInt(galleryItem.albumIndex))
+
+        let followingCount = galleryItem.message.attachmentIds.count - 1 - galleryItem.albumIndex
+        guard followingCount >= 0 else {
+            return
+        }
+        ensureGalleryItemsLoaded(.after, item: galleryItem, amount: UInt(followingCount))
+    }
+
+    var galleryAlbums: [String: MediaGalleryAlbum] = [:]
+    func getAlbum(item: MediaGalleryItem) -> MediaGalleryAlbum? {
+        guard let albumMessageId = item.attachmentStream.albumMessageId else {
+            return nil
+        }
+
+        guard let existingAlbum = galleryAlbums[albumMessageId] else {
+            let newAlbum = MediaGalleryAlbum(items: [item])
+            galleryAlbums[albumMessageId] = newAlbum
+            newAlbum.mediaGalleryDataSource = self
+            return newAlbum
+        }
+
+        existingAlbum.add(item: item)
+        return existingAlbum
     }
 
     // Range instead of indexSet since it's contiguous?
     var fetchedIndexSet = IndexSet() {
         didSet {
-            Logger.debug("\(logTag) in \(#function) \(oldValue) -> \(fetchedIndexSet)")
+            Logger.debug("\(oldValue) -> \(fetchedIndexSet)")
         }
     }
 
@@ -640,7 +789,7 @@ class MediaGalleryViewController: OWSNavigationController, MediaGalleryDataSourc
         Bench(title: "fetching gallery items") {
             self.uiDatabaseConnection.read { transaction in
 
-                let initialIndex: Int = Int(self.mediaGalleryFinder.mediaIndex(message: item.message, transaction: transaction))
+                let initialIndex: Int = Int(self.mediaGalleryFinder.mediaIndex(attachment: item.attachmentStream, transaction: transaction))
                 let mediaCount: Int = Int(self.mediaGalleryFinder.mediaCount(transaction: transaction))
 
                 let requestRange: Range<Int> = { () -> Range<Int> in
@@ -671,7 +820,7 @@ class MediaGalleryViewController: OWSNavigationController, MediaGalleryDataSourc
 
                 let requestSet = IndexSet(integersIn: requestRange)
                 guard !self.fetchedIndexSet.contains(integersIn: requestSet) else {
-                    Logger.debug("\(self.logTag) in \(#function) all requested messages have already been loaded.")
+                    Logger.debug("all requested messages have already been loaded.")
                     return
                 }
 
@@ -683,21 +832,21 @@ class MediaGalleryViewController: OWSNavigationController, MediaGalleryDataSourc
                 let isFetchingEdgeOfGallery = (self.fetchedIndexSet.count - unfetchedSet.count) < requestSet.count
 
                 guard isSubstantialRequest || isFetchingEdgeOfGallery else {
-                    Logger.debug("\(self.logTag) in \(#function) ignoring small fetch request: \(unfetchedSet.count)")
+                    Logger.debug("ignoring small fetch request: \(unfetchedSet.count)")
                     return
                 }
 
-                Logger.debug("\(self.logTag) in \(#function) fetching set: \(unfetchedSet)")
+                Logger.debug("fetching set: \(unfetchedSet)")
                 let nsRange: NSRange = NSRange(location: unfetchedSet.min()!, length: unfetchedSet.count)
-                self.mediaGalleryFinder.enumerateMediaMessages(range: nsRange, transaction: transaction) { (message: TSMessage) in
+                self.mediaGalleryFinder.enumerateMediaAttachments(range: nsRange, transaction: transaction) { (attachment: TSAttachment) in
 
-                    guard !self.deletedMessages.contains(message) else {
-                        Logger.debug("\(self.logTag) skipping \(message) which has been deleted.")
+                    guard !self.deletedAttachments.contains(attachment) else {
+                        Logger.debug("skipping \(attachment) which has been deleted.")
                         return
                     }
 
-                    guard let item: MediaGalleryItem = self.buildGalleryItem(message: message, transaction: transaction) else {
-                        owsFail("\(self.logTag) in \(#function) unexpectedly failed to buildGalleryItem")
+                    guard let item: MediaGalleryItem = self.buildGalleryItem(attachment: attachment, transaction: transaction) else {
+                        owsFailDebug("unexpectedly failed to buildGalleryItem")
                         return
                     }
 
@@ -730,13 +879,13 @@ class MediaGalleryViewController: OWSNavigationController, MediaGalleryDataSourc
 
         Bench(title: "sorting gallery items") {
             galleryItems.sort { lhs, rhs -> Bool in
-                return lhs.message.timestampForSorting() < rhs.message.timestampForSorting()
+                return lhs.orderingKey < rhs.orderingKey
             }
             sectionDates.sort()
 
             for (date, galleryItems) in sections {
                 sortedSections[date] = galleryItems.sorted { lhs, rhs -> Bool in
-                    return lhs.message.timestampForSorting() < rhs.message.timestampForSorting()
+                    return lhs.orderingKey < rhs.orderingKey
                 }
             }
         }
@@ -770,22 +919,27 @@ class MediaGalleryViewController: OWSNavigationController, MediaGalleryDataSourc
         dataSourceDelegates.append(Weak(value: dataSourceDelegate))
     }
 
-    var deletedMessages: Set<TSMessage> = Set()
-    var deletedGalleryItems: Set<MediaGalleryItem> = Set()
-
     func delete(items: [MediaGalleryItem], initiatedBy: MediaGalleryDataSourceDelegate) {
-        SwiftAssertIsOnMainThread(#function)
+        AssertIsOnMainThread()
 
-        Logger.info("\(logTag) in \(#function) with items: \(items.map { ($0.attachmentStream, $0.message.timestamp) })")
+        Logger.info("with items: \(items.map { ($0.attachmentStream, $0.message.timestamp) })")
 
         deletedGalleryItems.formUnion(items)
         dataSourceDelegates.forEach { $0.value?.mediaGalleryDataSource(self, willDelete: items, initiatedBy: initiatedBy) }
 
+        for item in items {
+            self.deletedAttachments.insert(item.attachmentStream)
+        }
+
         self.editingDatabaseConnection.asyncReadWrite { transaction in
             for item in items {
                 let message = item.message
-                message.remove(with: transaction)
-                self.deletedMessages.insert(message)
+                let attachment = item.attachmentStream
+                message.removeAttachment(attachment, transaction: transaction)
+                if message.attachmentIds.count == 0 {
+                    Logger.debug("removing message after removing last media attachment")
+                    message.remove(with: transaction)
+                }
             }
         }
 
@@ -796,40 +950,40 @@ class MediaGalleryViewController: OWSNavigationController, MediaGalleryDataSourc
 
         for item in items {
             guard let itemIndex = galleryItems.index(of: item) else {
-                owsFail("\(logTag) in \(#function) removing unknown item.")
+                owsFailDebug("removing unknown item.")
                 return
             }
 
             self.galleryItems.remove(at: itemIndex)
 
             guard let sectionIndex = sectionDates.index(where: { $0 == item.galleryDate }) else {
-                owsFail("\(logTag) in \(#function) item with unknown date.")
+                owsFailDebug("item with unknown date.")
                 return
             }
 
             guard var sectionItems = self.sections[item.galleryDate] else {
-                owsFail("\(logTag) in \(#function) item with unknown section")
+                owsFailDebug("item with unknown section")
                 return
             }
 
             guard let sectionRowIndex = sectionItems.index(of: item) else {
-                owsFail("\(logTag) in \(#function) item with unknown sectionRowIndex")
+                owsFailDebug("item with unknown sectionRowIndex")
                 return
             }
 
             // We need to calculate the index of the deleted item with respect to it's original position.
             guard let originalSectionIndex = originalSectionDates.index(where: { $0 == item.galleryDate }) else {
-                owsFail("\(logTag) in \(#function) item with unknown date.")
+                owsFailDebug("item with unknown date.")
                 return
             }
 
             guard let originalSectionItems = originalSections[item.galleryDate] else {
-                owsFail("\(logTag) in \(#function) item with unknown section")
+                owsFailDebug("item with unknown section")
                 return
             }
 
             guard let originalSectionRowIndex = originalSectionItems.index(of: item) else {
-                owsFail("\(logTag) in \(#function) item with unknown sectionRowIndex")
+                owsFailDebug("item with unknown sectionRowIndex")
                 return
             }
 
@@ -854,12 +1008,12 @@ class MediaGalleryViewController: OWSNavigationController, MediaGalleryDataSourc
     let kGallerySwipeLoadBatchSize: UInt = 5
 
     internal func galleryItem(after currentItem: MediaGalleryItem) -> MediaGalleryItem? {
-        Logger.debug("\(logTag) in \(#function)")
+        Logger.debug("")
 
         self.ensureGalleryItemsLoaded(.after, item: currentItem, amount: kGallerySwipeLoadBatchSize)
 
         guard let currentIndex = galleryItems.index(of: currentItem) else {
-            owsFail("currentIndex was unexpectedly nil in \(#function)")
+            owsFailDebug("currentIndex was unexpectedly nil")
             return nil
         }
 
@@ -870,7 +1024,7 @@ class MediaGalleryViewController: OWSNavigationController, MediaGalleryDataSourc
         }
 
         guard !deletedGalleryItems.contains(nextItem) else {
-            Logger.debug("\(self.logTag) in \(#function) nextItem was deleted - Recursing.")
+            Logger.debug("nextItem was deleted - Recursing.")
             return galleryItem(after: nextItem)
         }
 
@@ -878,12 +1032,12 @@ class MediaGalleryViewController: OWSNavigationController, MediaGalleryDataSourc
     }
 
     internal func galleryItem(before currentItem: MediaGalleryItem) -> MediaGalleryItem? {
-        Logger.debug("\(logTag) in \(#function)")
+        Logger.debug("")
 
         self.ensureGalleryItemsLoaded(.before, item: currentItem, amount: kGallerySwipeLoadBatchSize)
 
         guard let currentIndex = galleryItems.index(of: currentItem) else {
-            owsFail("currentIndex was unexpectedly nil in \(#function)")
+            owsFailDebug("currentIndex was unexpectedly nil")
             return nil
         }
 
@@ -894,7 +1048,7 @@ class MediaGalleryViewController: OWSNavigationController, MediaGalleryDataSourc
         }
 
         guard !deletedGalleryItems.contains(previousItem) else {
-            Logger.debug("\(self.logTag) in \(#function) previousItem was deleted - Recursing.")
+            Logger.debug("previousItem was deleted - Recursing.")
             return galleryItem(before: previousItem)
         }
 
@@ -906,6 +1060,6 @@ class MediaGalleryViewController: OWSNavigationController, MediaGalleryDataSourc
         self.uiDatabaseConnection.read { (transaction: YapDatabaseReadTransaction) in
             count = self.mediaGalleryFinder.mediaCount(transaction: transaction)
         }
-        return Int(count) - deletedMessages.count
+        return Int(count) - deletedAttachments.count
     }
 }

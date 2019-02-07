@@ -24,45 +24,31 @@ NSString *TSInvalidRecipientKey = @"TSInvalidRecipientKey";
 
 @end
 
+// DEPRECATED - we no longer create new instances of this class (as of  mid-2017); However, existing instances may
+// exist, so we should keep this class around to honor their old behavior.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-implementations"
 @implementation TSInvalidIdentityKeySendingErrorMessage
+#pragma clang diagnostic pop
 
-- (instancetype)initWithOutgoingMessage:(TSOutgoingMessage *)message
-                               inThread:(TSThread *)thread
-                           forRecipient:(NSString *)recipientId
-                           preKeyBundle:(PreKeyBundle *)preKeyBundle
-{
-    // We want the error message to appear after the message.
-    self = [super initWithTimestamp:message.timestamp + 1
-                           inThread:thread
-                  failedMessageType:TSErrorMessageWrongTrustedIdentityKey
-                        recipientId:recipientId];
-
-    if (self) {
-        _messageId    = message.uniqueId;
-        _preKeyBundle = preKeyBundle;
-    }
-
-    return self;
-}
-
-- (void)acceptNewIdentityKey
+- (void)throws_acceptNewIdentityKey
 {
     // Shouldn't really get here, since we're no longer creating blocking SN changes.
     // But there may still be some old unaccepted SN errors in the wild that need to be accepted.
-    OWSFail(@"accepting new identity key is deprecated.");
+    OWSFailDebug(@"accepting new identity key is deprecated.");
 
-    NSData *_Nullable newIdentityKey = self.newIdentityKey;
+    NSData *_Nullable newIdentityKey = [self throws_newIdentityKey];
     if (!newIdentityKey) {
-        OWSFail(@"newIdentityKey is unexpectedly nil. Bad Prekey bundle?: %@", self.preKeyBundle);
+        OWSFailDebug(@"newIdentityKey is unexpectedly nil. Bad Prekey bundle?: %@", self.preKeyBundle);
         return;
     }
 
     [[OWSIdentityManager sharedManager] saveRemoteIdentity:newIdentityKey recipientId:self.recipientId];
 }
 
-- (nullable NSData *)newIdentityKey
+- (nullable NSData *)throws_newIdentityKey
 {
-    return [self.preKeyBundle.identityKey removeKeyType];
+    return [self.preKeyBundle.identityKey throws_removeKeyType];
 }
 
 - (NSString *)theirSignalId

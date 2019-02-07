@@ -5,16 +5,19 @@
 #import "OWSSyncContactsMessage.h"
 #import "Contact.h"
 #import "ContactsManagerProtocol.h"
-#import "NSDate+OWS.h"
 #import "OWSContactsOutputStream.h"
 #import "OWSIdentityManager.h"
-#import "OWSSignalServiceProtos.pb.h"
 #import "ProfileManagerProtocol.h"
+#import "SSKEnvironment.h"
 #import "SignalAccount.h"
+#import "TSAccountManager.h"
 #import "TSAttachment.h"
 #import "TSAttachmentStream.h"
 #import "TSContactThread.h"
-#import "TextSecureKitEnv.h"
+#import <SignalCoreKit/NSDate+OWS.h>
+#import <SignalServiceKit/SignalServiceKit-Swift.h>
+
+@import Contacts;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -49,44 +52,77 @@ NS_ASSUME_NONNULL_BEGIN
     return [super initWithCoder:coder];
 }
 
-- (OWSSignalServiceProtosSyncMessageBuilder *)syncMessageBuilder
+#pragma mark - Dependencies
+
+- (id<ContactsManagerProtocol>)contactsManager {
+    return SSKEnvironment.shared.contactsManager;
+}
+
+- (TSAccountManager *)tsAccountManager {
+    return TSAccountManager.sharedInstance;
+}
+
+#pragma mark -
+
+- (nullable SSKProtoSyncMessageBuilder *)syncMessageBuilder
 {
     if (self.attachmentIds.count != 1) {
-        DDLogError(@"expected sync contact message to have exactly one attachment, but found %lu",
+        OWSLogError(@"expected sync contact message to have exactly one attachment, but found %lu",
             (unsigned long)self.attachmentIds.count);
     }
 
-    OWSSignalServiceProtosAttachmentPointer *attachmentProto =
+    SSKProtoAttachmentPointer *_Nullable attachmentProto =
         [TSAttachmentStream buildProtoForAttachmentId:self.attachmentIds.firstObject];
+    if (!attachmentProto) {
+        OWSFailDebug(@"could not build protobuf.");
+        return nil;
+    }
 
-    OWSSignalServiceProtosSyncMessageContactsBuilder *contactsBuilder =
-        [OWSSignalServiceProtosSyncMessageContactsBuilder new];
-
-    [contactsBuilder setBlob:attachmentProto];
+    SSKProtoSyncMessageContactsBuilder *contactsBuilder = [SSKProtoSyncMessageContacts builderWithBlob:attachmentProto];
     [contactsBuilder setIsComplete:YES];
 
-    OWSSignalServiceProtosSyncMessageBuilder *syncMessageBuilder = [OWSSignalServiceProtosSyncMessageBuilder new];
-    [syncMessageBuilder setContactsBuilder:contactsBuilder];
-
+    NSError *error;
+    SSKProtoSyncMessageContacts *_Nullable contactsProto = [contactsBuilder buildAndReturnError:&error];
+    if (error || !contactsProto) {
+        OWSFailDebug(@"could not build protobuf: %@", error);
+        return nil;
+    }
+    SSKProtoSyncMessageBuilder *syncMessageBuilder = [SSKProtoSyncMessage builder];
+    [syncMessageBuilder setContacts:contactsProto];
     return syncMessageBuilder;
 }
 
-- (NSData *)buildPlainTextAttachmentDataWithTransaction:(YapDatabaseReadTransaction *)transaction
+- (nullable NSData *)buildPlainTextAttachmentDataWithTransaction:(YapDatabaseReadTransaction *)transaction
 {
-    id<ContactsManagerProtocol> contactsManager = TextSecureKitEnv.sharedEnv.contactsManager;
+    NSMutableArray<SignalAccount *> *signalAccounts = [self.signalAccounts mutableCopy];
+    
+    NSString *_Nullable localNumber = self.tsAccountManager.localNumber;
+    OWSAssertDebug(localNumber);
+    if (localNumber) {
+        BOOL hasLocalNumber = NO;
+        for (SignalAccount *signalAccount in signalAccounts) {
+            hasLocalNumber |= [signalAccount.recipientId isEqualToString:localNumber];
+        }
+        if (!hasLocalNumber) {
+            SignalAccount *signalAccount = [[SignalAccount alloc] initWithRecipientId:localNumber];
+            // OWSContactsOutputStream requires all signalAccount to have a contact.
+            signalAccount.contact = [[Contact alloc] initWithSystemContact:[CNContact new]];
+            [signalAccounts addObject:signalAccount];
+        }
+    }
 
     // TODO use temp file stream to avoid loading everything into memory at once
     // First though, we need to re-engineer our attachment process to accept streams (encrypting with stream,
     // and uploading with streams).
     NSOutputStream *dataOutputStream = [NSOutputStream outputStreamToMemory];
     [dataOutputStream open];
-    OWSContactsOutputStream *contactsOutputStream = [OWSContactsOutputStream streamWithOutputStream:dataOutputStream];
+    OWSContactsOutputStream *contactsOutputStream =
+        [[OWSContactsOutputStream alloc] initWithOutputStream:dataOutputStream];
 
-    for (SignalAccount *signalAccount in self.signalAccounts) {
+    for (SignalAccount *signalAccount in signalAccounts) {
         OWSRecipientIdentity *_Nullable recipientIdentity =
             [self.identityManager recipientIdentityForRecipientId:signalAccount.recipientId];
         NSData *_Nullable profileKeyData = [self.profileManager profileKeyDataForRecipientId:signalAccount.recipientId];
-
 
         OWSDisappearingMessagesConfiguration *_Nullable disappearingMessagesConfiguration;
         NSString *conversationColorName;
@@ -96,19 +132,23 @@ NS_ASSUME_NONNULL_BEGIN
             conversationColorName = contactThread.conversationColorName;
             disappearingMessagesConfiguration = [contactThread disappearingMessagesConfigurationWithTransaction:transaction];
         } else {
-            conversationColorName = [TSThread stableConversationColorNameForString:signalAccount.recipientId];
+            conversationColorName = [TSThread stableColorNameForNewConversationWithString:signalAccount.recipientId];
         }
 
         [contactsOutputStream writeSignalAccount:signalAccount
                                recipientIdentity:recipientIdentity
                                   profileKeyData:profileKeyData
-                                 contactsManager:contactsManager
+                                 contactsManager:self.contactsManager
                            conversationColorName:conversationColorName
                disappearingMessagesConfiguration:disappearingMessagesConfiguration];
     }
-
-    [contactsOutputStream flush];
+    
     [dataOutputStream close];
+
+    if (contactsOutputStream.hasError) {
+        OWSFailDebug(@"Could not write contacts sync stream.");
+        return nil;
+    }
 
     return [dataOutputStream propertyForKey:NSStreamDataWrittenToMemoryStreamKey];
 }

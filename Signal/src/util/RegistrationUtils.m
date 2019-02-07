@@ -6,12 +6,24 @@
 #import "CodeVerificationViewController.h"
 #import "OWSNavigationController.h"
 #import <SignalMessaging/Environment.h>
+#import <SignalMessaging/OWSPreferences.h>
 #import <SignalMessaging/SignalMessaging-Swift.h>
 #import <SignalServiceKit/TSAccountManager.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
 @implementation RegistrationUtils
+
+#pragma mark - Dependencies
+
++ (TSAccountManager *)tsAccountManager
+{
+    OWSAssertDebug(SSKEnvironment.shared.tsAccountManager);
+    
+    return SSKEnvironment.shared.tsAccountManager;
+}
+
+#pragma mark -
 
 + (void)showReregistrationUIFromViewController:(UIViewController *)fromViewController
 {
@@ -34,23 +46,23 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (void)reregisterWithFromViewController:(UIViewController *)fromViewController
 {
-    DDLogInfo(@"%@ reregisterWithSamePhoneNumber.", self.logTag);
+    OWSLogInfo(@"reregisterWithSamePhoneNumber.");
 
-    if (![[TSAccountManager sharedInstance] resetForReregistration]) {
-        OWSFail(@"%@ could not reset for re-registration.", self.logTag);
+    if (![self.tsAccountManager resetForReregistration]) {
+        OWSFailDebug(@"could not reset for re-registration.");
         return;
     }
 
-    [[Environment current].preferences unsetRecordedAPNSTokens];
+    [Environment.shared.preferences unsetRecordedAPNSTokens];
 
     [ModalActivityIndicatorViewController
         presentFromViewController:fromViewController
                         canCancel:NO
                   backgroundBlock:^(ModalActivityIndicatorViewController *modalActivityIndicator) {
-                      [TSAccountManager
-                          registerWithPhoneNumber:[TSAccountManager sharedInstance].reregisterationPhoneNumber
+                      [self.tsAccountManager
+                          registerWithPhoneNumber:self.tsAccountManager.reregisterationPhoneNumber
                           success:^{
-                              DDLogInfo(@"%@ re-registering: send verification code succeeded.", self.logTag);
+                              OWSLogInfo(@"re-registering: send verification code succeeded.");
 
                               dispatch_async(dispatch_get_main_queue(), ^{
                                   [modalActivityIndicator dismissWithCompletion:^{
@@ -67,7 +79,7 @@ NS_ASSUME_NONNULL_BEGIN
                               });
                           }
                           failure:^(NSError *error) {
-                              DDLogError(@"%@ re-registering: send verification code failed.", self.logTag);
+                              OWSLogError(@"re-registering: send verification code failed.");
 
                               dispatch_async(dispatch_get_main_queue(), ^{
                                   [modalActivityIndicator dismissWithCompletion:^{

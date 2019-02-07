@@ -1,15 +1,22 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 #import "TSRequest.h"
 #import "TSAccountManager.h"
 #import "TSConstants.h"
+#import <SignalCoreKit/NSData+OWS.h>
+#import <SignalMetadataKit/SignalMetadataKit-Swift.h>
+
+NS_ASSUME_NONNULL_BEGIN
 
 @implementation TSRequest
 
+@synthesize authUsername = _authUsername;
+@synthesize authPassword = _authPassword;
+
 - (id)initWithURL:(NSURL *)URL {
-    OWSAssert(URL);
+    OWSAssertDebug(URL);
     self = [super initWithURL:URL
                   cachePolicy:NSURLRequestReloadIgnoringLocalAndRemoteCacheData
               timeoutInterval:textSecureHTTPTimeOut];
@@ -25,7 +32,7 @@
 
 - (instancetype)init
 {
-    OWSRaiseException(NSInternalInconsistencyException, @"You must use the initWithURL: method");
+    OWSFail(@"You must use the initWithURL: method");
     return nil;
 }
 
@@ -36,7 +43,7 @@
                 cachePolicy:(NSURLRequestCachePolicy)cachePolicy
             timeoutInterval:(NSTimeInterval)timeoutInterval
 {
-    OWSRaiseException(NSInternalInconsistencyException, @"You must use the initWithURL method");
+    OWSFail(@"You must use the initWithURL: method");
     return nil;
 }
 
@@ -44,9 +51,9 @@
                      method:(NSString *)method
                  parameters:(nullable NSDictionary<NSString *, id> *)parameters
 {
-    OWSAssert(URL);
-    OWSAssert(method.length > 0);
-    OWSAssert(parameters);
+    OWSAssertDebug(URL);
+    OWSAssertDebug(method.length > 0);
+    OWSAssertDebug(parameters);
 
     self = [super initWithURL:URL
                   cachePolicy:NSURLRequestReloadIgnoringLocalAndRemoteCacheData
@@ -71,17 +78,42 @@
 
 #pragma mark - Authorization
 
-- (NSString *)authUsername
+- (void)setAuthUsername:(nullable NSString *)authUsername
 {
-    OWSAssert(self.shouldHaveAuthorizationHeaders);
-    return (_authUsername ?: [TSAccountManager localNumber]);
+    OWSAssertDebug(self.shouldHaveAuthorizationHeaders);
+
+    @synchronized(self) {
+        _authUsername = authUsername;
+    }
 }
 
-- (NSString *)authPassword
+- (void)setAuthPassword:(nullable NSString *)authPassword
 {
-    OWSAssert(self.shouldHaveAuthorizationHeaders);
-    return (_authPassword ?: [TSAccountManager serverAuthToken]);
+    OWSAssertDebug(self.shouldHaveAuthorizationHeaders);
+
+    @synchronized(self) {
+        _authPassword = authPassword;
+    }
 }
 
+- (nullable NSString *)authUsername
+{
+    OWSAssertDebug(self.shouldHaveAuthorizationHeaders);
+
+    @synchronized(self) {
+        return (_authUsername ?: [TSAccountManager localNumber]);
+    }
+}
+
+- (nullable NSString *)authPassword
+{
+    OWSAssertDebug(self.shouldHaveAuthorizationHeaders);
+
+    @synchronized(self) {
+        return (_authPassword ?: [TSAccountManager serverAuthToken]);
+    }
+}
 
 @end
+
+NS_ASSUME_NONNULL_END

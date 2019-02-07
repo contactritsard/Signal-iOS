@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 import Foundation
@@ -35,55 +35,101 @@ public class OWSNavigationBar: UINavigationBar {
     }
 
     public required init?(coder aDecoder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+        notImplemented()
     }
 
     @objc
     public static let backgroundBlurMutingFactor: CGFloat = 0.5
-    var blurEffectView: UIView?
+    var blurEffectView: UIVisualEffectView?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
 
-        if !UIAccessibilityIsReduceTransparencyEnabled() {
+        applyTheme()
+
+        NotificationCenter.default.addObserver(self, selector: #selector(callDidChange), name: .OWSWindowManagerCallDidChange, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(didChangeStatusBarFrame), name: .UIApplicationDidChangeStatusBarFrame, object: nil)
+        NotificationCenter.default.addObserver(self,
+                                               selector: #selector(themeDidChange),
+                                               name: .ThemeDidChange,
+                                               object: nil)
+    }
+
+    // MARK: Theme
+
+    private func applyTheme() {
+        guard respectsTheme else {
+            return
+        }
+
+        if UIAccessibilityIsReduceTransparencyEnabled() {
+            blurEffectView?.isHidden = true
+            let color = Theme.navbarBackgroundColor
+            let backgroundImage = UIImage(color: color)
+            self.setBackgroundImage(backgroundImage, for: .default)
+        } else {
             // Make navbar more translucent than default. Navbars remove alpha from any assigned backgroundColor, so
             // to achieve transparency, we have to assign a transparent image.
             let color = Theme.navbarBackgroundColor.withAlphaComponent(OWSNavigationBar.backgroundBlurMutingFactor)
             let backgroundImage = UIImage(color: color)
             self.setBackgroundImage(backgroundImage, for: .default)
-            let blurEffect = UIBlurEffect(style: .light)
-            let blurEffectView = UIVisualEffectView(effect: blurEffect)
-            blurEffectView.isUserInteractionEnabled = false
-            self.blurEffectView = blurEffectView
+
+            let blurEffect = Theme.barBlurEffect
+
+            let blurEffectView: UIVisualEffectView = {
+                if let existingBlurEffectView = self.blurEffectView {
+                    existingBlurEffectView.isHidden = false
+                    return existingBlurEffectView
+                }
+
+                let blurEffectView = UIVisualEffectView()
+                blurEffectView.isUserInteractionEnabled = false
+
+                self.blurEffectView = blurEffectView
+                self.insertSubview(blurEffectView, at: 0)
+
+                // navbar frame doesn't account for statusBar, so, same as the built-in navbar background, we need to exceed
+                // the navbar bounds to have the blur extend up and behind the status bar.
+                blurEffectView.autoPinEdgesToSuperviewEdges(with: UIEdgeInsets(top: -statusBarHeight, left: 0, bottom: 0, right: 0))
+
+                return blurEffectView
+            }()
+
+            blurEffectView.effect = blurEffect
 
             // remove hairline below bar.
             self.shadowImage = UIImage()
 
-            self.insertSubview(blurEffectView, at: 0)
             // On iOS11, despite inserting the blur at 0, other views are later inserted into the navbar behind the blur,
             // so we have to set a zindex to avoid obscuring navbar title/buttons.
             blurEffectView.layer.zPosition = -1
-
-            // navbar frame doesn't account for statusBar, so, same as the built-in navbar background, we need to exceed
-            // the navbar bounds to have the blur extend up and behind the status bar.
-            blurEffectView.autoPinEdgesToSuperviewEdges(with: UIEdgeInsets(top: -statusBarHeight, left: 0, bottom: 0, right: 0))
         }
+    }
 
-        NotificationCenter.default.addObserver(self, selector: #selector(callDidChange), name: .OWSWindowManagerCallDidChange, object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(didChangeStatusBarFrame), name: .UIApplicationDidChangeStatusBarFrame, object: nil)
+    @objc
+    public func themeDidChange() {
+        Logger.debug("")
+        applyTheme()
+    }
+
+    @objc
+    public var respectsTheme: Bool = true {
+        didSet {
+            themeDidChange()
+        }
     }
 
     // MARK: Layout
 
     @objc
     public func callDidChange() {
-        Logger.debug("\(self.logTag) in \(#function)")
+        Logger.debug("")
         self.navBarLayoutDelegate?.navBarCallLayoutDidChange(navbar: self)
     }
 
     @objc
     public func didChangeStatusBarFrame() {
-        Logger.debug("\(self.logTag) in \(#function)")
+        Logger.debug("")
         self.navBarLayoutDelegate?.navBarCallLayoutDidChange(navbar: self)
     }
 
@@ -94,16 +140,32 @@ public class OWSNavigationBar: UINavigationBar {
 
         if #available(iOS 11, *) {
             return super.sizeThatFits(size)
-        } else {
-            // pre iOS11, sizeThatFits is repeatedly called to determine how much space to reserve for that navbar.
+        } else if #available(iOS 10, *) {
+            // iOS10
+            // sizeThatFits is repeatedly called to determine how much space to reserve for that navbar.
             // That is, increasing this causes the child view controller to be pushed down.
             // (as of iOS11, this is not used and instead we use additionalSafeAreaInsets)
             return CGSize(width: fullWidth, height: navbarWithoutStatusHeight + statusBarHeight)
+        } else {
+            // iOS9
+            // sizeThatFits is repeatedly called to determine how much space to reserve for that navbar.
+            // That is, increasing this causes the child view controller to be pushed down.
+            // (as of iOS11, this is not used and instead we use additionalSafeAreaInsets)            
+            return CGSize(width: fullWidth, height: navbarWithoutStatusHeight + callBannerHeight + 20)
         }
     }
 
     public override func layoutSubviews() {
+        guard CurrentAppContext().isMainApp else {
+            super.layoutSubviews()
+            return
+        }
         guard OWSWindowManager.shared().hasCall() else {
+            super.layoutSubviews()
+            return
+        }
+
+        guard #available(iOS 11, *) else {
             super.layoutSubviews()
             return
         }
@@ -112,10 +174,6 @@ public class OWSNavigationBar: UINavigationBar {
         self.bounds = CGRect(x: 0, y: 0, width: fullWidth, height: navbarWithoutStatusHeight)
 
         super.layoutSubviews()
-
-        guard #available(iOS 11, *) else {
-            return
-        }
 
         // This is only necessary on iOS11, which has some private views within that lay outside of the navbar.
         // They aren't actually visible behind the call status bar, but they looks strange during present/dismiss
@@ -130,14 +188,37 @@ public class OWSNavigationBar: UINavigationBar {
         }
     }
 
-    // MARK: 
+    // MARK: Override Theme
 
     @objc
-    public func makeClear() {
-        self.backgroundColor = .clear
-        self.setBackgroundImage(UIImage(), for: .default)
-        self.shadowImage = UIImage()
-        self.clipsToBounds = true
-        self.blurEffectView?.isHidden = true
+    public enum NavigationBarThemeOverride: Int {
+        case clear, alwaysDark
+    }
+
+    @objc
+    public func overrideTheme(type: NavigationBarThemeOverride) {
+        respectsTheme = false
+
+        barStyle = .black
+        titleTextAttributes = [NSAttributedStringKey.foregroundColor: Theme.darkThemePrimaryColor]
+        barTintColor = Theme.darkThemeBackgroundColor.withAlphaComponent(0.6)
+        tintColor = Theme.darkThemePrimaryColor
+
+        switch type {
+        case .clear:
+            blurEffectView?.isHidden = true
+            clipsToBounds = true
+
+            // Making a toolbar transparent requires setting an empty uiimage
+            setBackgroundImage(UIImage(), for: .default)
+            shadowImage = UIImage()
+            backgroundColor = .clear
+        case .alwaysDark:
+            blurEffectView?.isHidden = false
+            clipsToBounds = false
+
+            setBackgroundImage(nil, for: .default)
+            shadowImage = nil
+        }
     }
 }

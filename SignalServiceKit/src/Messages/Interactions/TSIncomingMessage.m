@@ -1,9 +1,8 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 #import "TSIncomingMessage.h"
-#import "NSDate+OWS.h"
 #import "NSNotificationCenter+OWS.h"
 #import "OWSDisappearingMessagesConfiguration.h"
 #import "OWSDisappearingMessagesJob.h"
@@ -12,6 +11,7 @@
 #import "TSContactThread.h"
 #import "TSDatabaseSecondaryIndexes.h"
 #import "TSGroupThread.h"
+#import <SignalCoreKit/NSDate+OWS.h>
 #import <YapDatabase/YapDatabaseConnection.h>
 
 NS_ASSUME_NONNULL_BEGIN
@@ -19,6 +19,8 @@ NS_ASSUME_NONNULL_BEGIN
 @interface TSIncomingMessage ()
 
 @property (nonatomic, getter=wasRead) BOOL read;
+
+@property (nonatomic, nullable) NSNumber *serverTimestamp;
 
 @end
 
@@ -33,6 +35,11 @@ NS_ASSUME_NONNULL_BEGIN
         return self;
     }
 
+    if (_authorId == nil) {
+        OWSAssertDebug([self.uniqueThreadId hasPrefix:TSContactThreadPrefix]);
+        _authorId = [TSContactThread contactIdFromThreadId:self.uniqueThreadId];
+    }
+
     return self;
 }
 
@@ -45,6 +52,9 @@ NS_ASSUME_NONNULL_BEGIN
                                 expiresInSeconds:(uint32_t)expiresInSeconds
                                    quotedMessage:(nullable TSQuotedMessage *)quotedMessage
                                     contactShare:(nullable OWSContact *)contactShare
+                                     linkPreview:(nullable OWSLinkPreview *)linkPreview
+                                 serverTimestamp:(nullable NSNumber *)serverTimestamp
+                                 wasReceivedByUD:(BOOL)wasReceivedByUD
 {
     self = [super initMessageWithTimestamp:timestamp
                                   inThread:thread
@@ -53,7 +63,8 @@ NS_ASSUME_NONNULL_BEGIN
                           expiresInSeconds:expiresInSeconds
                            expireStartedAt:0
                              quotedMessage:quotedMessage
-                              contactShare:contactShare];
+                              contactShare:contactShare
+                               linkPreview:linkPreview];
 
     if (!self) {
         return self;
@@ -62,6 +73,8 @@ NS_ASSUME_NONNULL_BEGIN
     _authorId = authorId;
     _sourceDeviceId = sourceDeviceId;
     _read = NO;
+    _serverTimestamp = serverTimestamp;
+    _wasReceivedByUD = wasReceivedByUD;
 
     return self;
 }
@@ -70,7 +83,7 @@ NS_ASSUME_NONNULL_BEGIN
                                        timestamp:(uint64_t)timestamp
                                      transaction:(YapDatabaseReadWriteTransaction *)transaction
 {
-    OWSAssert(transaction);
+    OWSAssertDebug(transaction);
 
     __block TSIncomingMessage *foundMessage;
     // In theory we could build a new secondaryIndex for (authorId,timestamp), but in practice there should
@@ -83,10 +96,9 @@ NS_ASSUME_NONNULL_BEGIN
                                  if ([interaction isKindOfClass:[TSIncomingMessage class]]) {
                                      TSIncomingMessage *message = (TSIncomingMessage *)interaction;
 
-                                     NSString *messageAuthorId = message.messageAuthorId;
-                                     OWSAssert(messageAuthorId.length > 0);
+                                     OWSAssertDebug(message.authorId > 0);
 
-                                     if ([messageAuthorId isEqualToString:authorId]) {
+                                     if ([message.authorId isEqualToString:authorId]) {
                                          foundMessage = message;
                                      }
                                  }
@@ -96,22 +108,6 @@ NS_ASSUME_NONNULL_BEGIN
     return foundMessage;
 }
 
-// TODO get rid of this method and instead populate authorId in initWithCoder:
-- (NSString *)messageAuthorId
-{
-    // authorId isn't set on all legacy messages, so we take
-    // extra measures to ensure we obtain a valid value.
-    NSString *messageAuthorId;
-    if (self.authorId) {
-        // Group Thread
-        messageAuthorId = self.authorId;
-    } else {
-        // Contact Thread
-        messageAuthorId = [TSContactThread contactIdFromThreadId:self.uniqueThreadId];
-    }
-    OWSAssert(messageAuthorId.length > 0);
-    return messageAuthorId;
-}
 
 - (OWSInteractionType)interactionType
 {
@@ -149,15 +145,14 @@ NS_ASSUME_NONNULL_BEGIN
               sendReadReceipt:(BOOL)sendReadReceipt
                   transaction:(YapDatabaseReadWriteTransaction *)transaction;
 {
-    OWSAssert(transaction);
+    OWSAssertDebug(transaction);
 
     if (_read && readTimestamp >= self.expireStartedAt) {
         return;
     }
     
     NSTimeInterval secondsAgoRead = ((NSTimeInterval)[NSDate ows_millisecondTimeStamp] - (NSTimeInterval)readTimestamp) / 1000;
-    DDLogDebug(@"%@ marking uniqueId: %@  which has timestamp: %llu as read: %f seconds ago",
-        self.logTag,
+    OWSLogDebug(@"marking uniqueId: %@  which has timestamp: %llu as read: %f seconds ago",
         self.uniqueId,
         self.timestamp,
         secondsAgoRead);

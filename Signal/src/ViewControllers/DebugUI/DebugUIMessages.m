@@ -1,17 +1,18 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 #import "DebugUIMessages.h"
+#import "DebugContactsUtils.h"
 #import "DebugUIContacts.h"
 #import "DebugUIMessagesAction.h"
 #import "DebugUIMessagesAssetLoader.h"
 #import "OWSTableViewController.h"
 #import "Signal-Swift.h"
-#import <Curve25519Kit/Randomness.h>
+#import <SignalCoreKit/NSDate+OWS.h>
+#import <SignalCoreKit/Randomness.h>
 #import <SignalMessaging/Environment.h>
 #import <SignalServiceKit/MIMETypeUtil.h>
-#import <SignalServiceKit/NSDate+OWS.h>
 #import <SignalServiceKit/OWSBatchMessageProcessor.h>
 #import <SignalServiceKit/OWSDisappearingConfigurationUpdateInfoMessage.h>
 #import <SignalServiceKit/OWSDisappearingMessagesConfiguration.h>
@@ -51,6 +52,8 @@ NS_ASSUME_NONNULL_BEGIN
     return @"Messages";
 }
 
+#ifdef DEBUG
+
 - (NSArray<OWSTableItem *> *)itemsForActions:(NSArray<DebugUIMessagesAction *> *)actions
 {
     NSMutableArray<OWSTableItem *> *items = [NSMutableArray new];
@@ -75,20 +78,26 @@ NS_ASSUME_NONNULL_BEGIN
     return items;
 }
 
+#endif
+
 - (nullable OWSTableSection *)sectionForThread:(nullable TSThread *)thread
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     NSMutableArray<OWSTableItem *> *items = [NSMutableArray new];
+
+#ifdef DEBUG
 
     [items addObject:[OWSTableItem itemWithTitle:@"Delete all messages in thread"
                                      actionBlock:^{
                                          [DebugUIMessages deleteAllMessagesInThread:thread];
                                      }]];
-    [items addObject:[OWSTableItem itemWithTitle:@"👷 Send All Contact Shares"
+    [items addObject:[OWSTableItem itemWithTitle:@"👷 Thrash insert/deletes"
                                      actionBlock:^{
-                                         [DebugUIMessages sendAllContacts:thread];
+                                         [DebugUIMessages thrashInsertAndDeleteForThread:(TSThread *)thread
+                                                                                 counter:300];
                                      }]];
+
     [items addObjectsFromArray:[self itemsForActions:@[
         [DebugUIMessages fakeAllContactShareAction:thread],
         [DebugUIMessages sendMessageVariationsAction:thread],
@@ -118,6 +127,14 @@ NS_ASSUME_NONNULL_BEGIN
                         actionBlock:^{
                             [DebugUIMessages sendNTextMessagesInThread:thread];
                         }],
+        [OWSTableItem itemWithTitle:@"Send Media Gallery"
+                        actionBlock:^{
+                            [DebugUIMessages sendMediaAlbumInThread:thread];
+                        }],
+        [OWSTableItem itemWithTitle:@"Send Exemplary Media Galleries"
+                        actionBlock:^{
+                            [DebugUIMessages sendExemplaryMediaGalleriesInThread:thread];
+                        }],
         [OWSTableItem itemWithTitle:@"Select Fake"
                         actionBlock:^{
                             [DebugUIMessages selectFakeAction:thread];
@@ -125,6 +142,10 @@ NS_ASSUME_NONNULL_BEGIN
         [OWSTableItem itemWithTitle:@"Select Send Media"
                         actionBlock:^{
                             [DebugUIMessages selectSendMediaAction:thread];
+                        }],
+        [OWSTableItem itemWithTitle:@"Send All Contact Shares"
+                        actionBlock:^{
+                            [DebugUIMessages sendAllContacts:thread];
                         }],
         [OWSTableItem itemWithTitle:@"Select Quoted Reply"
                         actionBlock:^{
@@ -182,6 +203,10 @@ NS_ASSUME_NONNULL_BEGIN
                         actionBlock:^{
                             [DebugUIMessages sendFakeMessages:10 * 1000 thread:thread];
                         }],
+        [OWSTableItem itemWithTitle:@"Create 10k fake text messages"
+                        actionBlock:^{
+                            [DebugUIMessages sendFakeMessages:10 * 1000 thread:thread isTextOnly:YES];
+                        }],
         [OWSTableItem itemWithTitle:@"Create 100k fake messages"
                         actionBlock:^{
                             [DebugUIMessages sendFakeMessages:100 * 1000 thread:thread];
@@ -226,18 +251,13 @@ NS_ASSUME_NONNULL_BEGIN
         [OWSTableItem
             itemWithTitle:@"Request Bogus group info"
               actionBlock:^{
-                  DDLogInfo(@"%@ Requesting bogus group info for thread: %@", self.logTag, thread);
-                  OWSSyncGroupsRequestMessage *syncGroupsRequestMessage =
-                      [[OWSSyncGroupsRequestMessage alloc] initWithThread:thread
-                                                                  groupId:[Randomness generateRandomBytes:16]];
-                  [[Environment current].messageSender enqueueMessage:syncGroupsRequestMessage
-                      success:^{
-                          DDLogWarn(@"%@ Successfully sent Request Group Info message.", self.logTag);
-                      }
-                      failure:^(NSError *error) {
-                          DDLogError(
-                              @"%@ Failed to send Request Group Info message with error: %@", self.logTag, error);
-                      }];
+                  OWSLogInfo(@"Requesting bogus group info for thread: %@", thread);
+                  OWSSyncGroupsRequestMessage *syncGroupsRequestMessage = [[OWSSyncGroupsRequestMessage alloc]
+                      initWithThread:thread
+                             groupId:[Randomness generateRandomBytes:kGroupIdLength]];
+                  [self.dbConnection readWriteWithBlock:^(YapDatabaseReadWriteTransaction *_Nonnull transaction) {
+                      [self.messageSenderJobQueue addMessage:syncGroupsRequestMessage transaction:transaction];
+                  }];
               }],
         [OWSTableItem itemWithTitle:@"Message with stalled timer"
                         actionBlock:^{
@@ -292,7 +312,34 @@ NS_ASSUME_NONNULL_BEGIN
                                              [DebugUIMessages sendMessages:1 toAllMembersOfGroup:groupThread];
                                          }]];
     }
+
+#endif
+
     return [OWSTableSection sectionWithTitle:self.name items:items];
+}
+
+#ifdef DEBUG
+
+#pragma mark - Dependencies
+
+- (YapDatabaseConnection *)dbConnection
+{
+    return self.class.dbConnection;
+}
+
++ (YapDatabaseConnection *)dbConnection
+{
+    return SSKEnvironment.shared.primaryStorage.dbReadWriteConnection;
+}
+
++ (SSKMessageSenderJobQueue *)messageSenderJobQueue
+{
+    return SSKEnvironment.shared.messageSenderJobQueue;
+}
+
+- (SSKMessageSenderJobQueue *)messageSenderJobQueue
+{
+    return self.class.messageSenderJobQueue;
 }
 
 + (void)sendMessages:(NSUInteger)count toAllMembersOfGroup:(TSGroupThread *)groupThread
@@ -305,15 +352,20 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (void)sendTextMessageInThread:(TSThread *)thread counter:(NSUInteger)counter
 {
-    DDLogInfo(@"%@ sendTextMessageInThread: %zd", self.logTag, counter);
+    OWSLogInfo(@"sendTextMessageInThread: %zd", counter);
     [DDLog flushLog];
 
     NSString *randomText = [self randomText];
     NSString *text = [[[@(counter) description] stringByAppendingString:@" "] stringByAppendingString:randomText];
-    OWSMessageSender *messageSender = [Environment current].messageSender;
-    TSOutgoingMessage *message =
-        [ThreadUtil sendMessageWithText:text inThread:thread quotedReplyModel:nil messageSender:messageSender];
-    DDLogError(@"%@ sendTextMessageInThread timestamp: %llu.", self.logTag, message.timestamp);
+    __block TSOutgoingMessage *message;
+    [self.dbConnection readWriteWithBlock:^(YapDatabaseReadWriteTransaction *transaction) {
+        message = [ThreadUtil enqueueMessageWithText:text
+                                            inThread:thread
+                                    quotedReplyModel:nil
+                                    linkPreviewDraft:nil
+                                         transaction:transaction];
+    }];
+    OWSLogError(@"sendTextMessageInThread timestamp: %llu.", message.timestamp);
 }
 
 + (void)sendNTextMessagesInThread:(TSThread *)thread
@@ -323,7 +375,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (DebugUIMessagesAction *)sendTextMessagesActionInThread:(TSThread *)thread
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [DebugUIMessagesSingleAction actionWithLabel:@"Send Text Message"
                                    staggeredActionBlock:^(NSUInteger index,
@@ -345,13 +397,12 @@ NS_ASSUME_NONNULL_BEGIN
                success:(nullable void (^)(void))success
                failure:(nullable void (^)(void))failure
 {
-    OWSAssert(filePath);
-    OWSAssert(thread);
+    OWSAssertDebug(filePath);
+    OWSAssertDebug(thread);
 
-    OWSMessageSender *messageSender = [Environment current].messageSender;
     NSString *filename = [filePath lastPathComponent];
     NSString *utiType = [MIMETypeUtil utiTypeForFileExtension:filename.pathExtension];
-    DataSource *_Nullable dataSource = [DataSourcePath dataSourceWithFilePath:filePath];
+    DataSource *_Nullable dataSource = [DataSourcePath dataSourceWithFilePath:filePath shouldDeleteOnDeallocation:NO];
     [dataSource setSourceFilename:filename];
     SignalAttachment *attachment =
         [SignalAttachment attachmentWithDataSource:dataSource dataUTI:utiType imageQuality:TSImageQualityOriginal];
@@ -368,17 +419,13 @@ NS_ASSUME_NONNULL_BEGIN
     }
     attachment.captionText = messageBody;
 
-    OWSAssert(attachment);
+    OWSAssertDebug(attachment);
     if ([attachment hasError]) {
-        DDLogError(@"attachment[%@]: %@", [attachment sourceFilename], [attachment errorName]);
+        OWSLogError(@"attachment[%@]: %@", [attachment sourceFilename], [attachment errorName]);
         [DDLog flushLog];
     }
-    OWSAssert(![attachment hasError]);
-    [ThreadUtil sendMessageWithAttachment:attachment
-                                 inThread:thread
-                         quotedReplyModel:nil
-                            messageSender:messageSender
-                               completion:nil];
+    OWSAssertDebug(![attachment hasError]);
+    [ThreadUtil enqueueMessageWithAttachment:attachment inThread:thread quotedReplyModel:nil];
     success();
 }
 
@@ -387,7 +434,7 @@ NS_ASSUME_NONNULL_BEGIN
 + (void)performActionNTimes:(DebugUIMessagesAction *)action
 {
     OWSAssertIsOnMainThread();
-    OWSAssert(action);
+    OWSAssertDebug(action);
 
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"How many?"
                                                                    message:nil
@@ -415,7 +462,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (NSArray<DebugUIMessagesAction *> *)allSendMediaActions:(TSThread *)thread
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     NSArray<DebugUIMessagesAction *> *actions = @[
         [self sendJpegAction:thread hasCaption:NO],
@@ -434,7 +481,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (DebugUIMessagesAction *)sendJpegAction:(TSThread *)thread hasCaption:(BOOL)hasCaption
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [self sendMediaAction:@"Send Jpeg"
                       hasCaption:hasCaption
@@ -444,7 +491,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (DebugUIMessagesAction *)sendGifAction:(TSThread *)thread hasCaption:(BOOL)hasCaption
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [self sendMediaAction:@"Send Gif"
                       hasCaption:hasCaption
@@ -454,7 +501,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (DebugUIMessagesAction *)sendLargeGifAction:(TSThread *)thread hasCaption:(BOOL)hasCaption
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [self sendMediaAction:@"Send Large Gif"
                       hasCaption:hasCaption
@@ -464,7 +511,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (DebugUIMessagesAction *)sendMp3Action:(TSThread *)thread hasCaption:(BOOL)hasCaption
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [self sendMediaAction:@"Send Mp3"
                       hasCaption:hasCaption
@@ -474,7 +521,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (DebugUIMessagesAction *)sendMp4Action:(TSThread *)thread hasCaption:(BOOL)hasCaption
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [self sendMediaAction:@"Send Mp4"
                       hasCaption:hasCaption
@@ -487,9 +534,9 @@ NS_ASSUME_NONNULL_BEGIN
                            fakeAssetLoader:(DebugUIMessagesAssetLoader *)fakeAssetLoader
                                     thread:(TSThread *)thread
 {
-    OWSAssert(labelParam.length > 0);
-    OWSAssert(fakeAssetLoader);
-    OWSAssert(thread);
+    OWSAssertDebug(labelParam.length > 0);
+    OWSAssertDebug(fakeAssetLoader);
+    OWSAssertDebug(thread);
 
     NSString *label = labelParam;
     if (hasCaption) {
@@ -503,7 +550,7 @@ NS_ASSUME_NONNULL_BEGIN
             ActionSuccessBlock success,
             ActionFailureBlock failure) {
             dispatch_async(dispatch_get_main_queue(), ^{
-                OWSAssert(fakeAssetLoader.filePath.length > 0);
+                OWSAssertDebug(fakeAssetLoader.filePath.length > 0);
                 [self sendAttachment:fakeAssetLoader.filePath
                               thread:thread
                                label:label
@@ -517,7 +564,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (DebugUIMessagesAction *)sendAllMediaAction:(TSThread *)thread
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [DebugUIMessagesGroupAction allGroupActionWithLabel:@"All Send Media"
                                                     subactions:[self allSendMediaActions:thread]];
@@ -525,7 +572,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (DebugUIMessagesAction *)sendRandomMediaAction:(TSThread *)thread
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [DebugUIMessagesGroupAction randomGroupActionWithLabel:@"Random Send Media"
                                                        subactions:[self allSendMediaActions:thread]];
@@ -533,7 +580,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (void)selectSendMediaAction:(TSThread *)thread
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     [self selectActionUI:[self allSendMediaActions:thread] label:@"Select Send Media"];
 }
@@ -544,7 +591,7 @@ NS_ASSUME_NONNULL_BEGIN
                                      messageState:(TSOutgoingMessageState)messageState
                                        hasCaption:(BOOL)hasCaption
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [self fakeOutgoingMediaAction:@"Fake Outgoing Jpeg"
                             messageState:messageState
@@ -557,7 +604,7 @@ NS_ASSUME_NONNULL_BEGIN
                                     messageState:(TSOutgoingMessageState)messageState
                                       hasCaption:(BOOL)hasCaption
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [self fakeOutgoingMediaAction:@"Fake Outgoing Gif"
                             messageState:messageState
@@ -570,7 +617,7 @@ NS_ASSUME_NONNULL_BEGIN
                                          messageState:(TSOutgoingMessageState)messageState
                                            hasCaption:(BOOL)hasCaption
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [self fakeOutgoingMediaAction:@"Fake Outgoing Large Gif"
                             messageState:messageState
@@ -583,7 +630,7 @@ NS_ASSUME_NONNULL_BEGIN
                                     messageState:(TSOutgoingMessageState)messageState
                                       hasCaption:(BOOL)hasCaption
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [self fakeOutgoingMediaAction:@"Fake Outgoing Mp3"
                             messageState:messageState
@@ -596,7 +643,7 @@ NS_ASSUME_NONNULL_BEGIN
                                     messageState:(TSOutgoingMessageState)messageState
                                       hasCaption:(BOOL)hasCaption
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [self fakeOutgoingMediaAction:@"Fake Outgoing Mp4"
                             messageState:messageState
@@ -609,7 +656,7 @@ NS_ASSUME_NONNULL_BEGIN
                                                    messageState:(TSOutgoingMessageState)messageState
                                                      hasCaption:(BOOL)hasCaption
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [self fakeOutgoingMediaAction:@"Fake Outgoing Portrait Png"
                             messageState:messageState
@@ -622,7 +669,7 @@ NS_ASSUME_NONNULL_BEGIN
                                                     messageState:(TSOutgoingMessageState)messageState
                                                       hasCaption:(BOOL)hasCaption
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [self fakeOutgoingMediaAction:@"Fake Outgoing Landscape Png"
                             messageState:messageState
@@ -635,7 +682,7 @@ NS_ASSUME_NONNULL_BEGIN
                                                 messageState:(TSOutgoingMessageState)messageState
                                                   hasCaption:(BOOL)hasCaption
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [self fakeOutgoingMediaAction:@"Fake Outgoing Tall Portrait Png"
                             messageState:messageState
@@ -648,7 +695,7 @@ NS_ASSUME_NONNULL_BEGIN
                                                  messageState:(TSOutgoingMessageState)messageState
                                                    hasCaption:(BOOL)hasCaption
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [self fakeOutgoingMediaAction:@"Fake Outgoing Wide Landscape Png"
                             messageState:messageState
@@ -661,7 +708,7 @@ NS_ASSUME_NONNULL_BEGIN
                                          messageState:(TSOutgoingMessageState)messageState
                                            hasCaption:(BOOL)hasCaption
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [self fakeOutgoingMediaAction:@"Fake Outgoing Large Png"
                             messageState:messageState
@@ -674,7 +721,7 @@ NS_ASSUME_NONNULL_BEGIN
                                         messageState:(TSOutgoingMessageState)messageState
                                           hasCaption:(BOOL)hasCaption
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [self fakeOutgoingMediaAction:@"Fake Outgoing Tiny Png"
                             messageState:messageState
@@ -692,7 +739,7 @@ NS_ASSUME_NONNULL_BEGIN
                                     messageState:(TSOutgoingMessageState)messageState
                                       hasCaption:(BOOL)hasCaption
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [self fakeOutgoingMediaAction:actionLabel
                             messageState:messageState
@@ -708,7 +755,7 @@ NS_ASSUME_NONNULL_BEGIN
                                         messageState:(TSOutgoingMessageState)messageState
                                           hasCaption:(BOOL)hasCaption
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [self fakeOutgoingMediaAction:@"Fake Outgoing Tiny Pdf"
                             messageState:messageState
@@ -721,7 +768,7 @@ NS_ASSUME_NONNULL_BEGIN
                                          messageState:(TSOutgoingMessageState)messageState
                                            hasCaption:(BOOL)hasCaption
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [self fakeOutgoingMediaAction:@"Fake Outgoing Large Pdf"
                             messageState:messageState
@@ -734,7 +781,7 @@ NS_ASSUME_NONNULL_BEGIN
                                            messageState:(TSOutgoingMessageState)messageState
                                              hasCaption:(BOOL)hasCaption
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [self fakeOutgoingMediaAction:@"Fake Outgoing Missing Png"
                             messageState:messageState
@@ -747,7 +794,7 @@ NS_ASSUME_NONNULL_BEGIN
                                            messageState:(TSOutgoingMessageState)messageState
                                              hasCaption:(BOOL)hasCaption
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [self fakeOutgoingMediaAction:@"Fake Outgoing Missing Pdf"
                             messageState:messageState
@@ -760,7 +807,7 @@ NS_ASSUME_NONNULL_BEGIN
                                              messageState:(TSOutgoingMessageState)messageState
                                                hasCaption:(BOOL)hasCaption
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [self fakeOutgoingMediaAction:@"Fake Outgoing Oversize Text"
                             messageState:messageState
@@ -775,9 +822,9 @@ NS_ASSUME_NONNULL_BEGIN
                                    fakeAssetLoader:(DebugUIMessagesAssetLoader *)fakeAssetLoader
                                             thread:(TSThread *)thread
 {
-    OWSAssert(labelParam.length > 0);
-    OWSAssert(fakeAssetLoader);
-    OWSAssert(thread);
+    OWSAssertDebug(labelParam.length > 0);
+    OWSAssertDebug(fakeAssetLoader);
+    OWSAssertDebug(thread);
 
     NSString *label = [labelParam stringByAppendingString:[self actionLabelForHasCaption:hasCaption
                                                                     outgoingMessageState:messageState
@@ -787,7 +834,7 @@ NS_ASSUME_NONNULL_BEGIN
     return
         [DebugUIMessagesSingleAction actionWithLabel:label
                               unstaggeredActionBlock:^(NSUInteger index, YapDatabaseReadWriteTransaction *transaction) {
-                                  OWSAssert(fakeAssetLoader.filePath.length > 0);
+                                  OWSAssertDebug(fakeAssetLoader.filePath.length > 0);
                                   [self createFakeOutgoingMedia:index
                                                    messageState:messageState
                                                      hasCaption:hasCaption
@@ -805,9 +852,9 @@ NS_ASSUME_NONNULL_BEGIN
                          thread:(TSThread *)thread
                     transaction:(YapDatabaseReadWriteTransaction *)transaction
 {
-    OWSAssert(thread);
-    OWSAssert(fakeAssetLoader.filePath);
-    OWSAssert(transaction);
+    OWSAssertDebug(thread);
+    OWSAssertDebug(fakeAssetLoader.filePath);
+    OWSAssertDebug(transaction);
 
     // Random time within last n years. Helpful for filling out a media gallery over time.
     //    double yearsMillis = 4.0 * kYearsInMs;
@@ -836,6 +883,7 @@ NS_ASSUME_NONNULL_BEGIN
                                                           isRead:NO
                                                    quotedMessage:nil
                                                     contactShare:nil
+                                                     linkPreview:nil
                                                      transaction:transaction];
 
     // This is a hack to "back-date" the message.
@@ -850,7 +898,7 @@ NS_ASSUME_NONNULL_BEGIN
                            isAttachmentDownloaded:(BOOL)isAttachmentDownloaded
                                        hasCaption:(BOOL)hasCaption
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [self fakeIncomingMediaAction:@"Fake Incoming Jpeg"
                   isAttachmentDownloaded:isAttachmentDownloaded
@@ -863,7 +911,7 @@ NS_ASSUME_NONNULL_BEGIN
                           isAttachmentDownloaded:(BOOL)isAttachmentDownloaded
                                       hasCaption:(BOOL)hasCaption
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [self fakeIncomingMediaAction:@"Fake Incoming Gif"
                   isAttachmentDownloaded:isAttachmentDownloaded
@@ -876,7 +924,7 @@ NS_ASSUME_NONNULL_BEGIN
                                isAttachmentDownloaded:(BOOL)isAttachmentDownloaded
                                            hasCaption:(BOOL)hasCaption
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [self fakeIncomingMediaAction:@"Fake Incoming Large Gif"
                   isAttachmentDownloaded:isAttachmentDownloaded
@@ -889,7 +937,7 @@ NS_ASSUME_NONNULL_BEGIN
                           isAttachmentDownloaded:(BOOL)isAttachmentDownloaded
                                       hasCaption:(BOOL)hasCaption
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [self fakeIncomingMediaAction:@"Fake Incoming Mp3"
                   isAttachmentDownloaded:isAttachmentDownloaded
@@ -902,7 +950,7 @@ NS_ASSUME_NONNULL_BEGIN
                           isAttachmentDownloaded:(BOOL)isAttachmentDownloaded
                                       hasCaption:(BOOL)hasCaption
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [self fakeIncomingMediaAction:@"Fake Incoming Mp4"
                   isAttachmentDownloaded:isAttachmentDownloaded
@@ -915,7 +963,7 @@ NS_ASSUME_NONNULL_BEGIN
                                          isAttachmentDownloaded:(BOOL)isAttachmentDownloaded
                                                      hasCaption:(BOOL)hasCaption
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [self fakeIncomingMediaAction:@"Fake Incoming Portrait Png"
                   isAttachmentDownloaded:isAttachmentDownloaded
@@ -928,7 +976,7 @@ NS_ASSUME_NONNULL_BEGIN
                                           isAttachmentDownloaded:(BOOL)isAttachmentDownloaded
                                                       hasCaption:(BOOL)hasCaption
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [self fakeIncomingMediaAction:@"Fake Incoming Landscape Png"
                   isAttachmentDownloaded:isAttachmentDownloaded
@@ -941,7 +989,7 @@ NS_ASSUME_NONNULL_BEGIN
                                       isAttachmentDownloaded:(BOOL)isAttachmentDownloaded
                                                   hasCaption:(BOOL)hasCaption
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [self fakeIncomingMediaAction:@"Fake Incoming Tall Portrait Png"
                   isAttachmentDownloaded:isAttachmentDownloaded
@@ -954,7 +1002,7 @@ NS_ASSUME_NONNULL_BEGIN
                                        isAttachmentDownloaded:(BOOL)isAttachmentDownloaded
                                                    hasCaption:(BOOL)hasCaption
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [self fakeIncomingMediaAction:@"Fake Incoming Wide Landscape Png"
                   isAttachmentDownloaded:isAttachmentDownloaded
@@ -967,7 +1015,7 @@ NS_ASSUME_NONNULL_BEGIN
                                isAttachmentDownloaded:(BOOL)isAttachmentDownloaded
                                            hasCaption:(BOOL)hasCaption
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [self fakeIncomingMediaAction:@"Fake Incoming Large Png"
                   isAttachmentDownloaded:isAttachmentDownloaded
@@ -980,7 +1028,7 @@ NS_ASSUME_NONNULL_BEGIN
                               isAttachmentDownloaded:(BOOL)isAttachmentDownloaded
                                           hasCaption:(BOOL)hasCaption
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [self fakeIncomingMediaAction:@"Tiny Incoming Large Png"
                   isAttachmentDownloaded:isAttachmentDownloaded
@@ -998,7 +1046,7 @@ NS_ASSUME_NONNULL_BEGIN
                           isAttachmentDownloaded:(BOOL)isAttachmentDownloaded
                                       hasCaption:(BOOL)hasCaption
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [self fakeIncomingMediaAction:actionLabel
                   isAttachmentDownloaded:isAttachmentDownloaded
@@ -1014,7 +1062,7 @@ NS_ASSUME_NONNULL_BEGIN
                               isAttachmentDownloaded:(BOOL)isAttachmentDownloaded
                                           hasCaption:(BOOL)hasCaption
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [self fakeIncomingMediaAction:@"Fake Incoming Tiny Pdf"
                   isAttachmentDownloaded:isAttachmentDownloaded
@@ -1027,7 +1075,7 @@ NS_ASSUME_NONNULL_BEGIN
                                isAttachmentDownloaded:(BOOL)isAttachmentDownloaded
                                            hasCaption:(BOOL)hasCaption
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [self fakeIncomingMediaAction:@"Fake Incoming Large Pdf"
                   isAttachmentDownloaded:isAttachmentDownloaded
@@ -1040,7 +1088,7 @@ NS_ASSUME_NONNULL_BEGIN
                                  isAttachmentDownloaded:(BOOL)isAttachmentDownloaded
                                              hasCaption:(BOOL)hasCaption
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [self fakeIncomingMediaAction:@"Fake Incoming Missing Png"
                   isAttachmentDownloaded:isAttachmentDownloaded
@@ -1053,7 +1101,7 @@ NS_ASSUME_NONNULL_BEGIN
                                  isAttachmentDownloaded:(BOOL)isAttachmentDownloaded
                                              hasCaption:(BOOL)hasCaption
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [self fakeIncomingMediaAction:@"Fake Incoming Missing Pdf"
                   isAttachmentDownloaded:isAttachmentDownloaded
@@ -1066,7 +1114,7 @@ NS_ASSUME_NONNULL_BEGIN
                                    isAttachmentDownloaded:(BOOL)isAttachmentDownloaded
                                                hasCaption:(BOOL)hasCaption
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [self fakeIncomingMediaAction:@"Fake Incoming Oversize Text"
                   isAttachmentDownloaded:isAttachmentDownloaded
@@ -1081,9 +1129,9 @@ NS_ASSUME_NONNULL_BEGIN
                                    fakeAssetLoader:(DebugUIMessagesAssetLoader *)fakeAssetLoader
                                             thread:(TSThread *)thread
 {
-    OWSAssert(labelParam.length > 0);
-    OWSAssert(fakeAssetLoader);
-    OWSAssert(thread);
+    OWSAssertDebug(labelParam.length > 0);
+    OWSAssertDebug(fakeAssetLoader);
+    OWSAssertDebug(thread);
 
     NSString *label = labelParam;
     if (hasCaption) {
@@ -1097,7 +1145,7 @@ NS_ASSUME_NONNULL_BEGIN
     return
         [DebugUIMessagesSingleAction actionWithLabel:label
                               unstaggeredActionBlock:^(NSUInteger index, YapDatabaseReadWriteTransaction *transaction) {
-                                  OWSAssert(fakeAssetLoader.filePath.length > 0);
+                                  OWSAssertDebug(fakeAssetLoader.filePath.length > 0);
                                   [self createFakeIncomingMedia:index
                                          isAttachmentDownloaded:isAttachmentDownloaded
                                                      hasCaption:hasCaption
@@ -1137,9 +1185,9 @@ NS_ASSUME_NONNULL_BEGIN
                                         thread:(TSThread *)thread
                                    transaction:(YapDatabaseReadWriteTransaction *)transaction
 {
-    OWSAssert(thread);
-    OWSAssert(fakeAssetLoader.filePath);
-    OWSAssert(transaction);
+    OWSAssertDebug(thread);
+    OWSAssertDebug(fakeAssetLoader.filePath);
+    OWSAssertDebug(transaction);
 
     //    // Random time within last n years. Helpful for filling out a media gallery over time.
     //    double yearsMillis = 4.0 * kYearsInMs;
@@ -1169,7 +1217,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (NSArray<DebugUIMessagesAction *> *)allFakeMediaActions:(TSThread *)thread includeLabels:(BOOL)includeLabels
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     NSMutableArray<DebugUIMessagesAction *> *actions = [NSMutableArray new];
 
@@ -1326,75 +1374,25 @@ NS_ASSUME_NONNULL_BEGIN
                          hasCaption:YES],
 
         [self fakeOutgoingPngAction:thread
-                        actionLabel:@"Fake Outgoing 'Outgoing Unsent' Png"
+                        actionLabel:@"Fake Outgoing 'Outgoing' Png"
                           imageSize:CGSizeMake(200.f, 200.f)
-                    backgroundColor:[conversationStyle bubbleColorOutgoingFailed]
+                    backgroundColor:[conversationStyle bubbleColorWithIsIncoming:NO]
                           textColor:[UIColor whiteColor]
                          imageLabel:@"W"
                        messageState:TSOutgoingMessageStateFailed
                          hasCaption:YES],
         [self fakeOutgoingPngAction:thread
-                        actionLabel:@"Fake Outgoing 'Outgoing Unsent' Png"
+                        actionLabel:@"Fake Outgoing 'Outgoing' Png"
                           imageSize:CGSizeMake(200.f, 200.f)
-                    backgroundColor:[conversationStyle bubbleColorOutgoingFailed]
+                    backgroundColor:[conversationStyle bubbleColorWithIsIncoming:NO]
                           textColor:[UIColor whiteColor]
                          imageLabel:@"W"
                        messageState:TSOutgoingMessageStateSending
                          hasCaption:YES],
         [self fakeOutgoingPngAction:thread
-                        actionLabel:@"Fake Outgoing 'Outgoing Unsent' Png"
+                        actionLabel:@"Fake Outgoing 'Outgoing' Png"
                           imageSize:CGSizeMake(200.f, 200.f)
-                    backgroundColor:[conversationStyle bubbleColorOutgoingFailed]
-                          textColor:[UIColor whiteColor]
-                         imageLabel:@"W"
-                       messageState:TSOutgoingMessageStateSent
-                         hasCaption:YES],
-
-        [self fakeOutgoingPngAction:thread
-                        actionLabel:@"Fake Outgoing 'Outgoing Sending' Png"
-                          imageSize:CGSizeMake(200.f, 200.f)
-                    backgroundColor:[conversationStyle bubbleColorOutgoingSending]
-                          textColor:[UIColor whiteColor]
-                         imageLabel:@"W"
-                       messageState:TSOutgoingMessageStateFailed
-                         hasCaption:YES],
-        [self fakeOutgoingPngAction:thread
-                        actionLabel:@"Fake Outgoing 'Outgoing Sending' Png"
-                          imageSize:CGSizeMake(200.f, 200.f)
-                    backgroundColor:[conversationStyle bubbleColorOutgoingSending]
-                          textColor:[UIColor whiteColor]
-                         imageLabel:@"W"
-                       messageState:TSOutgoingMessageStateSending
-                         hasCaption:YES],
-        [self fakeOutgoingPngAction:thread
-                        actionLabel:@"Fake Outgoing 'Outgoing Sending' Png"
-                          imageSize:CGSizeMake(200.f, 200.f)
-                    backgroundColor:[conversationStyle bubbleColorOutgoingSending]
-                          textColor:[UIColor whiteColor]
-                         imageLabel:@"W"
-                       messageState:TSOutgoingMessageStateSent
-                         hasCaption:YES],
-
-        [self fakeOutgoingPngAction:thread
-                        actionLabel:@"Fake Outgoing 'Outgoing Sent' Png"
-                          imageSize:CGSizeMake(200.f, 200.f)
-                    backgroundColor:[conversationStyle bubbleColorOutgoingSent]
-                          textColor:[UIColor whiteColor]
-                         imageLabel:@"W"
-                       messageState:TSOutgoingMessageStateFailed
-                         hasCaption:YES],
-        [self fakeOutgoingPngAction:thread
-                        actionLabel:@"Fake Outgoing 'Outgoing Sent' Png"
-                          imageSize:CGSizeMake(200.f, 200.f)
-                    backgroundColor:[conversationStyle bubbleColorOutgoingSent]
-                          textColor:[UIColor whiteColor]
-                         imageLabel:@"W"
-                       messageState:TSOutgoingMessageStateSending
-                         hasCaption:YES],
-        [self fakeOutgoingPngAction:thread
-                        actionLabel:@"Fake Outgoing 'Outgoing Sent' Png"
-                          imageSize:CGSizeMake(200.f, 200.f)
-                    backgroundColor:[conversationStyle bubbleColorOutgoingSent]
+                    backgroundColor:[conversationStyle bubbleColorWithIsIncoming:NO]
                           textColor:[UIColor whiteColor]
                          imageLabel:@"W"
                        messageState:TSOutgoingMessageStateSent
@@ -1562,7 +1560,7 @@ NS_ASSUME_NONNULL_BEGIN
         [self fakeIncomingPngAction:thread
                         actionLabel:@"Fake Incoming 'Incoming' Png"
                           imageSize:CGSizeMake(200.f, 200.f)
-                    backgroundColor:[conversationStyle primaryColor]
+                    backgroundColor:[conversationStyle conversationColor].primaryColor
                           textColor:[UIColor whiteColor]
                          imageLabel:@"W"
              isAttachmentDownloaded:YES
@@ -1570,7 +1568,23 @@ NS_ASSUME_NONNULL_BEGIN
         [self fakeIncomingPngAction:thread
                         actionLabel:@"Fake Incoming 'Incoming' Png"
                           imageSize:CGSizeMake(200.f, 200.f)
-                    backgroundColor:[conversationStyle primaryColor]
+                    backgroundColor:[conversationStyle conversationColor].shadeColor
+                          textColor:[UIColor whiteColor]
+                         imageLabel:@"W"
+             isAttachmentDownloaded:YES
+                         hasCaption:YES],
+        [self fakeIncomingPngAction:thread
+                        actionLabel:@"Fake Incoming 'Incoming' Png"
+                          imageSize:CGSizeMake(200.f, 200.f)
+                    backgroundColor:[conversationStyle conversationColor].primaryColor
+                          textColor:[UIColor whiteColor]
+                         imageLabel:@"W"
+             isAttachmentDownloaded:NO
+                         hasCaption:YES],
+        [self fakeIncomingPngAction:thread
+                        actionLabel:@"Fake Incoming 'Incoming' Png"
+                          imageSize:CGSizeMake(200.f, 200.f)
+                    backgroundColor:[conversationStyle conversationColor].shadeColor
                           textColor:[UIColor whiteColor]
                          imageLabel:@"W"
              isAttachmentDownloaded:NO
@@ -1617,7 +1631,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (DebugUIMessagesAction *)fakeAllMediaAction:(TSThread *)thread
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [DebugUIMessagesGroupAction allGroupActionWithLabel:@"All Fake Media"
                                                     subactions:[self allFakeMediaActions:thread includeLabels:YES]];
@@ -1625,7 +1639,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (DebugUIMessagesAction *)fakeRandomMediaAction:(TSThread *)thread
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [DebugUIMessagesGroupAction randomGroupActionWithLabel:@"Random Fake Media"
                                                        subactions:[self allFakeMediaActions:thread includeLabels:NO]];
@@ -1635,7 +1649,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (DebugUIMessagesAction *)sendShortTextMessageAction:(TSThread *)thread
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [DebugUIMessagesSingleAction actionWithLabel:@"Send Short Text Message"
                                    staggeredActionBlock:^(NSUInteger index,
@@ -1650,7 +1664,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (DebugUIMessagesAction *)sendOversizeTextMessageAction:(TSThread *)thread
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [DebugUIMessagesSingleAction actionWithLabel:@"Send Oversize Text Message"
                                    staggeredActionBlock:^(NSUInteger index,
@@ -1665,7 +1679,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (DebugUIMessagesAction *)sendMessageVariationsAction:(TSThread *)thread
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     NSArray<DebugUIMessagesAction *> *actions = @[
         [self sendShortTextMessageAction:thread],
@@ -1679,7 +1693,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (DebugUIMessagesAction *)fakeShortIncomingTextMessageAction:(TSThread *)thread
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [DebugUIMessagesSingleAction
                actionWithLabel:@"Fake Short Incoming Text Message"
@@ -1697,11 +1711,11 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (SignalAttachment *)signalAttachmentForFilePath:(NSString *)filePath
 {
-    OWSAssert(filePath);
+    OWSAssertDebug(filePath);
 
     NSString *filename = [filePath lastPathComponent];
     NSString *utiType = [MIMETypeUtil utiTypeForFileExtension:filename.pathExtension];
-    DataSource *_Nullable dataSource = [DataSourcePath dataSourceWithFilePath:filePath];
+    DataSource *_Nullable dataSource = [DataSourcePath dataSourceWithFilePath:filePath shouldDeleteOnDeallocation:NO];
     [dataSource setSourceFilename:filename];
     SignalAttachment *attachment =
         [SignalAttachment attachmentWithDataSource:dataSource dataUTI:utiType imageQuality:TSImageQualityOriginal];
@@ -1709,12 +1723,12 @@ NS_ASSUME_NONNULL_BEGIN
         attachment.captionText = [self randomCaptionText];
     }
 
-    OWSAssert(attachment);
+    OWSAssertDebug(attachment);
     if ([attachment hasError]) {
-        DDLogError(@"attachment[%@]: %@", [attachment sourceFilename], [attachment errorName]);
+        OWSLogError(@"attachment[%@]: %@", [attachment sourceFilename], [attachment errorName]);
         [DDLog flushLog];
     }
-    OWSAssert(![attachment hasError]);
+    OWSAssertDebug(![attachment hasError]);
     return attachment;
 }
 
@@ -1723,22 +1737,17 @@ NS_ASSUME_NONNULL_BEGIN
                success:(nullable void (^)(void))success
                failure:(nullable void (^)(void))failure
 {
-    OWSAssert(filePath);
-    OWSAssert(thread);
+    OWSAssertDebug(filePath);
+    OWSAssertDebug(thread);
 
     SignalAttachment *attachment = [self signalAttachmentForFilePath:filePath];
-    OWSMessageSender *messageSender = [Environment current].messageSender;
-    [ThreadUtil sendMessageWithAttachment:attachment
-                                 inThread:thread
-                         quotedReplyModel:nil
-                            messageSender:messageSender
-                               completion:nil];
+    [ThreadUtil enqueueMessageWithAttachment:attachment inThread:thread quotedReplyModel:nil];
     success();
 }
 
 + (DebugUIMessagesAction *)fakeIncomingTextMessageAction:(TSThread *)thread text:(NSString *)text
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [DebugUIMessagesSingleAction
                actionWithLabel:[NSString stringWithFormat:@"Fake Incoming Text Message (%@)", text]
@@ -1757,7 +1766,7 @@ NS_ASSUME_NONNULL_BEGIN
                                             messageState:(TSOutgoingMessageState)messageState
                                                     text:(NSString *)text
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [DebugUIMessagesSingleAction
                actionWithLabel:[NSString stringWithFormat:@"Fake Incoming Text Message (%@)", text]
@@ -1771,6 +1780,7 @@ NS_ASSUME_NONNULL_BEGIN
                                      isRead:NO
                               quotedMessage:nil
                                contactShare:nil
+                                linkPreview:nil
                                 transaction:transaction];
         }];
 }
@@ -1799,7 +1809,7 @@ NS_ASSUME_NONNULL_BEGIN
                                                   isDelivered:(BOOL)isDelivered
                                                        isRead:(BOOL)isRead
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     NSString *label = @"Fake Short Incoming Text Message";
     label = [label stringByAppendingString:[self actionLabelForHasCaption:YES
@@ -1819,13 +1829,14 @@ NS_ASSUME_NONNULL_BEGIN
                                      isRead:isRead
                               quotedMessage:nil
                                contactShare:nil
+                                linkPreview:nil
                                 transaction:transaction];
         }];
 }
 
 + (NSArray<DebugUIMessagesAction *> *)allFakeTextActions:(TSThread *)thread includeLabels:(BOOL)includeLabels
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     NSArray<NSString *> *messageBodies = @[
         @"Hi",
@@ -1880,7 +1891,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (DebugUIMessagesAction *)fakeAllTextAction:(TSThread *)thread
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [DebugUIMessagesGroupAction allGroupActionWithLabel:@"All Fake Text"
                                                     subactions:[self allFakeTextActions:thread includeLabels:YES]];
@@ -1888,7 +1899,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (DebugUIMessagesAction *)fakeRandomTextAction:(TSThread *)thread
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [DebugUIMessagesGroupAction randomGroupActionWithLabel:@"Random Fake Text"
                                                        subactions:[self allFakeTextActions:thread includeLabels:NO]];
@@ -1911,7 +1922,7 @@ NS_ASSUME_NONNULL_BEGIN
                   // Only applies if !isReplyIncoming.
                   replyMessageState:(TSOutgoingMessageState)replyMessageState
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     // Used fixed values for properties that shouldn't matter much.
     BOOL quotedMessageIsDelivered = NO;
@@ -1922,13 +1933,13 @@ NS_ASSUME_NONNULL_BEGIN
 
     // Seamlessly convert oversize text messages to oversize text attachments.
     if ([quotedMessageBody lengthOfBytesUsingEncoding:NSUTF8StringEncoding] >= kOversizeTextMessageSizeThreshold) {
-        OWSAssert(!quotedMessageAssetLoader);
+        OWSAssertDebug(!quotedMessageAssetLoader);
         quotedMessageAssetLoader = [DebugUIMessagesAssetLoader oversizeTextInstanceWithText:quotedMessageBody];
         quotedMessageBody = nil;
     }
     if (replyMessageBody &&
         [replyMessageBody lengthOfBytesUsingEncoding:NSUTF8StringEncoding] >= kOversizeTextMessageSizeThreshold) {
-        OWSAssert(!replyAssetLoader);
+        OWSAssertDebug(!replyAssetLoader);
         replyAssetLoader = [DebugUIMessagesAssetLoader oversizeTextInstanceWithText:replyMessageBody];
         replyMessageBody = nil;
     }
@@ -1982,14 +1993,17 @@ NS_ASSUME_NONNULL_BEGIN
                                           isAttachmentDownloaded:YES
                                                    quotedMessage:nil
                                                      transaction:transaction];
-                OWSAssert(messageToQuote);
-                DDLogVerbose(@"%@ %@", self.logTag, label);
+                OWSAssertDebug(messageToQuote);
+                OWSLogVerbose(@"%@", label);
                 [DDLog flushLog];
-                ConversationViewItem *viewItem = [[ConversationViewItem alloc] initWithInteraction:messageToQuote
-                                                                                     isGroupThread:thread.isGroupThread
-                                                                                       transaction:transaction
-                                                                                 conversationStyle:conversationStyle];
-                quotedMessage = [[OWSQuotedReplyModel quotedReplyForConversationViewItem:viewItem transaction:transaction] buildQuotedMessage];
+                id<ConversationViewItem> viewItem =
+                    [[ConversationInteractionViewItem alloc] initWithInteraction:messageToQuote
+                                                                   isGroupThread:thread.isGroupThread
+                                                                     transaction:transaction
+                                                               conversationStyle:conversationStyle];
+                quotedMessage = [
+                    [OWSQuotedReplyModel quotedReplyForSendingWithConversationViewItem:viewItem transaction:transaction]
+                    buildQuotedMessageForSending];
             } else {
                 TSOutgoingMessage *_Nullable messageToQuote = [self createFakeOutgoingMessage:thread
                                                                                   messageBody:quotedMessageBodyWIndex
@@ -1999,16 +2013,20 @@ NS_ASSUME_NONNULL_BEGIN
                                                                                        isRead:quotedMessageIsRead
                                                                                 quotedMessage:nil
                                                                                  contactShare:nil
+                                                                                  linkPreview:nil
                                                                                   transaction:transaction];
-                OWSAssert(messageToQuote);
+                OWSAssertDebug(messageToQuote);
 
-                ConversationViewItem *viewItem = [[ConversationViewItem alloc] initWithInteraction:messageToQuote
-                                                                                     isGroupThread:thread.isGroupThread
-                                                                                       transaction:transaction
-                                                                                 conversationStyle:conversationStyle];
-                quotedMessage = [[OWSQuotedReplyModel quotedReplyForConversationViewItem:viewItem transaction:transaction] buildQuotedMessage];
+                id<ConversationViewItem> viewItem =
+                    [[ConversationInteractionViewItem alloc] initWithInteraction:messageToQuote
+                                                                   isGroupThread:thread.isGroupThread
+                                                                     transaction:transaction
+                                                               conversationStyle:conversationStyle];
+                quotedMessage = [
+                    [OWSQuotedReplyModel quotedReplyForSendingWithConversationViewItem:viewItem transaction:transaction]
+                    buildQuotedMessageForSending];
             }
-            OWSAssert(quotedMessage);
+            OWSAssertDebug(quotedMessage);
 
             NSString *_Nullable replyMessageBodyWIndex
                 = (replyMessageBody ? [NSString stringWithFormat:@"%zd %@", index, replyMessageBody] : nil);
@@ -2028,6 +2046,7 @@ NS_ASSUME_NONNULL_BEGIN
                                          isRead:replyIsRead
                                   quotedMessage:quotedMessage
                                    contactShare:nil
+                                    linkPreview:nil
                                     transaction:transaction];
             }
         }
@@ -2063,7 +2082,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (NSArray<DebugUIMessagesAction *> *)allFakeQuotedReplyActions:(TSThread *)thread includeLabels:(BOOL)includeLabels
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     NSString *shortText = @"Lorem ipsum";
     NSString *mediumText = @"Lorem ipsum dolor sit amet, consectetur adipiscing elit. Lorem ipsum dolor sit amet, "
@@ -2649,7 +2668,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (DebugUIMessagesAction *)allQuotedReplyAction:(TSThread *)thread
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return
         [DebugUIMessagesGroupAction allGroupActionWithLabel:@"All Quoted Reply"
@@ -2659,14 +2678,14 @@ NS_ASSUME_NONNULL_BEGIN
 + (void)selectQuotedReplyAction:(TSThread *)thread
 {
     OWSAssertIsOnMainThread();
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     [self selectActionUI:[self allFakeQuotedReplyActions:thread includeLabels:NO] label:@"Select QuotedReply"];
 }
 
 + (DebugUIMessagesAction *)randomQuotedReplyAction:(TSThread *)thread
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [DebugUIMessagesGroupAction
         randomGroupActionWithLabel:@"Random Quoted Reply"
@@ -2677,7 +2696,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (NSArray<DebugUIMessagesAction *> *)allFakeActions:(TSThread *)thread includeLabels:(BOOL)includeLabels
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     NSMutableArray<DebugUIMessagesAction *> *actions = [NSMutableArray new];
     [actions addObjectsFromArray:[self allFakeMediaActions:thread includeLabels:includeLabels]];
@@ -2691,7 +2710,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (DebugUIMessagesAction *)allFakeAction:(TSThread *)thread
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [DebugUIMessagesGroupAction allGroupActionWithLabel:@"All Fake"
                                                     subactions:[self allFakeActions:thread includeLabels:YES]];
@@ -2700,7 +2719,7 @@ NS_ASSUME_NONNULL_BEGIN
 + (void)selectFakeAction:(TSThread *)thread
 {
     OWSAssertIsOnMainThread();
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     [self selectActionUI:[self allFakeActions:thread includeLabels:NO] label:@"Select Fake"];
 }
@@ -2728,7 +2747,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (NSArray<DebugUIMessagesAction *> *)allFakeSequenceActions:(TSThread *)thread includeLabels:(BOOL)includeLabels
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     NSMutableArray<DebugUIMessagesAction *> *actions = [NSMutableArray new];
 
@@ -2850,7 +2869,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (DebugUIMessagesAction *)allFakeSequencesAction:(TSThread *)thread
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [DebugUIMessagesGroupAction allGroupActionWithLabel:@"All Fake Sequences"
                                                     subactions:[self allFakeSequenceActions:thread includeLabels:YES]];
@@ -2862,7 +2881,7 @@ NS_ASSUME_NONNULL_BEGIN
                                                 label:(NSString *)label
                                            dateOffset:(int64_t)dateOffset
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [DebugUIMessagesSingleAction
                actionWithLabel:[NSString stringWithFormat:@"Fake Back-Date Message (%@)", label]
@@ -2877,6 +2896,7 @@ NS_ASSUME_NONNULL_BEGIN
                                                                   isRead:NO
                                                            quotedMessage:nil
                                                             contactShare:nil
+                                                             linkPreview:nil
                                                              transaction:transaction];
             [message setReceivedAtTimestamp:(uint64_t)((int64_t)[NSDate ows_millisecondTimeStamp] + dateOffset)];
             [message saveWithTransaction:transaction];
@@ -2885,7 +2905,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (NSArray<DebugUIMessagesAction *> *)allFakeBackDatedActions:(TSThread *)thread includeLabels:(BOOL)includeLabels
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     NSMutableArray<DebugUIMessagesAction *> *actions = [NSMutableArray new];
 
@@ -2911,7 +2931,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (DebugUIMessagesAction *)allFakeBackDatedAction:(TSThread *)thread
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [DebugUIMessagesGroupAction allGroupActionWithLabel:@"All Fake Back-Dated"
                                                     subactions:[self allFakeBackDatedActions:thread includeLabels:YES]];
@@ -2920,7 +2940,7 @@ NS_ASSUME_NONNULL_BEGIN
 + (void)selectBackDatedAction:(TSThread *)thread
 {
     OWSAssertIsOnMainThread();
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     [self selectActionUI:[self allFakeBackDatedActions:thread includeLabels:NO] label:@"Select Back-Dated"];
 }
@@ -2933,7 +2953,7 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
                                                    label:(NSString *)label
                                             contactBlock:(OWSContactBlock)contactBlock
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [DebugUIMessagesSingleAction
                actionWithLabel:[NSString stringWithFormat:@"Fake Contact Share (%@)", label]
@@ -2947,6 +2967,7 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
                                                                   isRead:NO
                                                            quotedMessage:nil
                                                             contactShare:contact
+                                                             linkPreview:nil
                                                              transaction:transaction];
             [message saveWithTransaction:transaction];
         }];
@@ -2954,7 +2975,7 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
 
 + (NSArray<DebugUIMessagesAction *> *)allFakeContactShareActions:(TSThread *)thread includeLabels:(BOOL)includeLabels
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     NSMutableArray<DebugUIMessagesAction *> *actions = [NSMutableArray new];
 
@@ -3108,10 +3129,10 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
 
 + (DebugUIMessagesAction *)fakeAllContactShareAction:(TSThread *)thread
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return
-        [DebugUIMessagesGroupAction allGroupActionWithLabel:@"👷 All Fake Contact Shares"
+        [DebugUIMessagesGroupAction allGroupActionWithLabel:@"All Fake Contact Shares"
                                                  subactions:[self allFakeContactShareActions:thread includeLabels:YES]];
 }
 
@@ -3120,7 +3141,7 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
                                                    label:(NSString *)label
                                             contactBlock:(OWSContactBlock)contactBlock
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     return [DebugUIMessagesSingleAction
              actionWithLabel:[NSString stringWithFormat:@"Send Contact Share (%@)", label]
@@ -3129,9 +3150,8 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
             ActionSuccessBlock success,
             ActionFailureBlock failure) {
             OWSContact *contact = contactBlock(transaction);
-            DDLogVerbose(@"%@ sending contact: %@", self.logTag, contact.debugDescription);
-            OWSMessageSender *messageSender = [Environment current].messageSender;
-            [ThreadUtil sendMessageWithContactShare:contact inThread:thread messageSender:messageSender completion:nil];
+            OWSLogVerbose(@"sending contact: %@", contact.debugDescription);
+            [ThreadUtil enqueueMessageWithContactShare:contact inThread:thread];
 
             success();
         }];
@@ -3139,7 +3159,7 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
 
 + (NSArray<DebugUIMessagesAction *> *)allSendContactShareActions:(TSThread *)thread includeLabels:(BOOL)includeLabels
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     NSMutableArray<DebugUIMessagesAction *> *actions = [NSMutableArray new];
 
@@ -3322,21 +3342,17 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
 
 + (void)sendOversizeTextMessage:(TSThread *)thread
 {
-    OWSMessageSender *messageSender = [Environment current].messageSender;
     NSString *message = [self randomOversizeText];
     DataSource *_Nullable dataSource = [DataSourceValue dataSourceWithOversizeText:message];
     SignalAttachment *attachment =
         [SignalAttachment attachmentWithDataSource:dataSource dataUTI:kOversizeTextAttachmentUTI];
-    [ThreadUtil sendMessageWithAttachment:attachment
-                                 inThread:thread
-                         quotedReplyModel:nil
-                            messageSender:messageSender
-                               completion:nil];
+    [ThreadUtil enqueueMessageWithAttachment:attachment inThread:thread quotedReplyModel:nil];
 }
 
 + (NSData *)createRandomNSDataOfSize:(size_t)size
 {
-    OWSAssert(size % 4 == 0);
+    OWSAssertDebug(size % 4 == 0);
+    OWSAssertDebug(size < INT_MAX);
 
     return [Randomness generateRandomBytes:(int)size];
 }
@@ -3353,7 +3369,6 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
 
 + (void)sendRandomAttachment:(TSThread *)thread uti:(NSString *)uti length:(NSUInteger)length
 {
-    OWSMessageSender *messageSender = [Environment current].messageSender;
     DataSource *_Nullable dataSource =
         [DataSourceValue dataSourceWithData:[self createRandomNSDataOfSize:length] utiType:uti];
     SignalAttachment *attachment =
@@ -3364,17 +3379,12 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
         // style them indistinguishably from a separate text message.
         attachment.captionText = [self randomCaptionText];
     }
-    [ThreadUtil sendMessageWithAttachment:attachment
-                                 inThread:thread
-                         quotedReplyModel:nil
-                            messageSender:messageSender
-                             ignoreErrors:YES
-                               completion:nil];
+    [ThreadUtil enqueueMessageWithAttachment:attachment inThread:thread quotedReplyModel:nil];
 }
 
-+ (SSKEnvelope *)createEnvelopeForThread:(TSThread *)thread
++ (SSKProtoEnvelope *)createEnvelopeForThread:(TSThread *)thread
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     uint64_t timestamp = [NSDate ows_millisecondTimeStamp];
     NSString *source = ^{
@@ -3385,24 +3395,27 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
             TSContactThread *contactThread = (TSContactThread *)thread;
             return contactThread.contactIdentifier;
         } else {
-            OWSFail(@"%@ failure: unknown thread type", self.logTag);
+            OWSFailDebug(@"failure: unknown thread type");
             return @"unknown-source-id";
         }
     }();
 
-    SSKEnvelope *envelope = [[SSKEnvelope alloc] initWithTimestamp:timestamp
-                                                            source:source
-                                                      sourceDevice:1
-                                                              type:SSKEnvelopeTypeCiphertext
-                                                           content:nil
-                                                     legacyMessage:nil];
-
+    SSKProtoEnvelopeBuilder *envelopeBuilder = [SSKProtoEnvelope builderWithType:SSKProtoEnvelopeTypeCiphertext
+                                                                       timestamp:timestamp];
+    [envelopeBuilder setSource:source];
+    [envelopeBuilder setSourceDevice:1];
+    NSError *error;
+    SSKProtoEnvelope *_Nullable envelope = [envelopeBuilder buildAndReturnError:&error];
+    if (error || !envelope) {
+        OWSFailDebug(@"Could not construct envelope: %@.", error);
+        return nil;
+    }
     return envelope;
 }
 
 + (NSArray<TSInteraction *> *)unsavedSystemMessagesInThread:(TSThread *)thread
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     NSMutableArray<TSInteraction *> *result = [NSMutableArray new];
 
@@ -3450,6 +3463,7 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
                 [[OWSDisappearingMessagesConfiguration alloc] initWithThreadId:thread.uniqueId
                                                                        enabled:YES
                                                                durationSeconds:(uint32_t)[durationSeconds intValue]];
+            // MJK - should be safe to remove this senderTimestamp
             [result addObject:[[OWSDisappearingConfigurationUpdateInfoMessage alloc]
                                        initWithTimestamp:[NSDate ows_millisecondTimeStamp]
                                                   thread:thread
@@ -3464,6 +3478,7 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
                 [[OWSDisappearingMessagesConfiguration alloc] initWithThreadId:thread.uniqueId
                                                                        enabled:YES
                                                                durationSeconds:(uint32_t)[durationSeconds intValue]];
+            // MJK - should be safe to remove this senderTimestamp
             [result addObject:[[OWSDisappearingConfigurationUpdateInfoMessage alloc]
                                        initWithTimestamp:[NSDate ows_millisecondTimeStamp]
                                                   thread:thread
@@ -3478,6 +3493,7 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
                 [[OWSDisappearingMessagesConfiguration alloc] initWithThreadId:thread.uniqueId
                                                                        enabled:YES
                                                                durationSeconds:(uint32_t)[durationSeconds intValue]];
+            // MJK TODO - remove senderTimestamp
             [result addObject:[[OWSDisappearingConfigurationUpdateInfoMessage alloc]
                                        initWithTimestamp:[NSDate ows_millisecondTimeStamp]
                                                   thread:thread
@@ -3490,6 +3506,7 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
                 [[OWSDisappearingMessagesConfiguration alloc] initWithThreadId:thread.uniqueId
                                                                        enabled:NO
                                                                durationSeconds:0];
+            // MJK TODO - remove senderTimestamp
             [result addObject:[[OWSDisappearingConfigurationUpdateInfoMessage alloc]
                                        initWithTimestamp:[NSDate ows_millisecondTimeStamp]
                                                   thread:thread
@@ -3500,44 +3517,55 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
 
         [result addObject:[TSInfoMessage userNotRegisteredMessageInThread:thread recipientId:@"+19174054215"]];
 
+        // MJK - should be safe to remove this senderTimestamp
         [result addObject:[[TSInfoMessage alloc] initWithTimestamp:[NSDate ows_millisecondTimeStamp]
                                                           inThread:thread
                                                        messageType:TSInfoMessageTypeSessionDidEnd]];
         // TODO: customMessage?
+        // MJK - should be safe to remove this senderTimestamp
         [result addObject:[[TSInfoMessage alloc] initWithTimestamp:[NSDate ows_millisecondTimeStamp]
                                                           inThread:thread
                                                        messageType:TSInfoMessageTypeGroupUpdate]];
         // TODO: customMessage?
+        // MJK - should be safe to remove this senderTimestamp
         [result addObject:[[TSInfoMessage alloc] initWithTimestamp:[NSDate ows_millisecondTimeStamp]
                                                           inThread:thread
                                                        messageType:TSInfoMessageTypeGroupQuit]];
 
+        // MJK - should be safe to remove this senderTimestamp
         [result addObject:[[OWSVerificationStateChangeMessage alloc] initWithTimestamp:[NSDate ows_millisecondTimeStamp]
                                                                                 thread:thread
                                                                            recipientId:@"+19174054215"
                                                                      verificationState:OWSVerificationStateDefault
                                                                          isLocalChange:YES]];
+
+        // MJK - should be safe to remove this senderTimestamp
         [result addObject:[[OWSVerificationStateChangeMessage alloc] initWithTimestamp:[NSDate ows_millisecondTimeStamp]
                                                                                 thread:thread
                                                                            recipientId:@"+19174054215"
                                                                      verificationState:OWSVerificationStateVerified
                                                                          isLocalChange:YES]];
+        // MJK - should be safe to remove this senderTimestamp
         [result
             addObject:[[OWSVerificationStateChangeMessage alloc] initWithTimestamp:[NSDate ows_millisecondTimeStamp]
                                                                             thread:thread
                                                                        recipientId:@"+19174054215"
                                                                  verificationState:OWSVerificationStateNoLongerVerified
                                                                      isLocalChange:YES]];
+
+        // MJK - should be safe to remove this senderTimestamp
         [result addObject:[[OWSVerificationStateChangeMessage alloc] initWithTimestamp:[NSDate ows_millisecondTimeStamp]
                                                                                 thread:thread
                                                                            recipientId:@"+19174054215"
                                                                      verificationState:OWSVerificationStateDefault
                                                                          isLocalChange:NO]];
+        // MJK - should be safe to remove this senderTimestamp
         [result addObject:[[OWSVerificationStateChangeMessage alloc] initWithTimestamp:[NSDate ows_millisecondTimeStamp]
                                                                                 thread:thread
                                                                            recipientId:@"+19174054215"
                                                                      verificationState:OWSVerificationStateVerified
                                                                          isLocalChange:NO]];
+        // MJK - should be safe to remove this senderTimestamp
         [result
             addObject:[[OWSVerificationStateChangeMessage alloc] initWithTimestamp:[NSDate ows_millisecondTimeStamp]
                                                                             thread:thread
@@ -3553,13 +3581,17 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
                                                      withTransaction:transaction]];
         [result addObject:[TSErrorMessage corruptedMessageWithEnvelope:[self createEnvelopeForThread:thread]
                                                        withTransaction:transaction]];
-        
-        
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
         TSInvalidIdentityKeyReceivingErrorMessage *_Nullable blockingSNChangeMessage =
             [TSInvalidIdentityKeyReceivingErrorMessage untrustedKeyWithEnvelope:[self createEnvelopeForThread:thread]
                                                                 withTransaction:transaction];
-        OWSAssert(blockingSNChangeMessage);
+#pragma clang diagnostic pop
+
+        OWSAssertDebug(blockingSNChangeMessage);
         [result addObject:blockingSNChangeMessage];
+        // MJK TODO - should be safe to remove this senderTimestamp
         [result addObject:[[TSErrorMessage alloc] initWithTimestamp:[NSDate ows_millisecondTimeStamp]
                                                            inThread:thread
                                                   failedMessageType:TSErrorMessageNonBlockingIdentityChange
@@ -3571,7 +3603,7 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
 
 + (void)createSystemMessagesInThread:(TSThread *)thread
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     NSArray<TSInteraction *> *messages = [self unsavedSystemMessagesInThread:thread];
     [OWSPrimaryStorage.dbReadWriteConnection readWriteWithBlock:^(YapDatabaseReadWriteTransaction *transaction) {
@@ -3583,7 +3615,7 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
 
 + (void)createSystemMessageInThread:(TSThread *)thread
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     NSArray<TSInteraction *> *messages = [self unsavedSystemMessagesInThread:thread];
     TSInteraction *message = messages[(NSUInteger)arc4random_uniform((uint32_t)messages.count)];
@@ -3648,18 +3680,18 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
 
 + (void)createFakeThreads:(NSUInteger)threadCount withFakeMessages:(NSUInteger)messageCount
 {
-    [DebugUIContacts
+    [DebugContactsUtils
         createRandomContacts:threadCount
               contactHandler:^(CNContact *_Nonnull contact, NSUInteger idx, BOOL *_Nonnull stop) {
                   NSString *phoneNumberText = contact.phoneNumbers.firstObject.value.stringValue;
-                  OWSAssert(phoneNumberText);
+                  OWSAssertDebug(phoneNumberText);
                   PhoneNumber *phoneNumber = [PhoneNumber tryParsePhoneNumberFromUserSpecifiedText:phoneNumberText];
-                  OWSAssert(phoneNumber);
-                  OWSAssert(phoneNumber.toE164);
+                  OWSAssertDebug(phoneNumber);
+                  OWSAssertDebug(phoneNumber.toE164);
 
                   TSContactThread *contactThread = [TSContactThread getOrCreateThreadWithContactId:phoneNumber.toE164];
                   [self sendFakeMessages:messageCount thread:contactThread];
-                  DDLogError(@"Create fake thread: %@, interactions: %lu",
+                  OWSLogError(@"Create fake thread: %@, interactions: %lu",
                       phoneNumber.toE164,
                       (unsigned long)contactThread.numberOfInteractions);
               }];
@@ -3687,13 +3719,30 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
                         [self sendFakeMessages:batchSize thread:thread isTextOnly:isTextOnly transaction:transaction];
                     }];
                 remainder -= batchSize;
-                DDLogInfo(@"%@ sendFakeMessages %lu / %lu",
-                    self.logTag,
-                    (unsigned long)(counter - remainder),
-                    (unsigned long)counter);
+                OWSLogInfo(@"sendFakeMessages %lu / %lu", (unsigned long)(counter - remainder), (unsigned long)counter);
             }
         });
     }
+}
+
++ (void)thrashInsertAndDeleteForThread:(TSThread *)thread counter:(NSUInteger)counter
+{
+    if (counter == 0) {
+        return;
+    }
+    uint32_t sendDelay = arc4random_uniform((uint32_t)(0.01 * NSEC_PER_SEC));
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, sendDelay), dispatch_get_main_queue(), ^{
+        [self sendFakeMessages:1 thread:thread];
+    });
+
+    uint32_t deleteDelay = arc4random_uniform((uint32_t)(0.01 * NSEC_PER_SEC));
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, deleteDelay), dispatch_get_main_queue(), ^{
+        [OWSPrimaryStorage.sharedManager.dbReadWriteConnection
+            asyncReadWriteWithBlock:^(YapDatabaseReadWriteTransaction *_Nonnull transaction) {
+                [self deleteRandomMessages:1 thread:thread transaction:transaction];
+            }];
+        [self thrashInsertAndDeleteForThread:thread counter:counter - 1];
+    });
 }
 
 // TODO: Remove.
@@ -3702,12 +3751,13 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
               isTextOnly:(BOOL)isTextOnly
              transaction:(YapDatabaseReadWriteTransaction *)transaction
 {
-    DDLogInfo(@"%@ sendFakeMessages: %lu", self.logTag, (unsigned long)counter);
+    OWSLogInfo(@"sendFakeMessages: %lu", (unsigned long)counter);
 
     for (NSUInteger i = 0; i < counter; i++) {
-        NSString *randomText = [self randomText];
+        NSString *randomText = [[self randomText] stringByAppendingFormat:@" (sequence: %lu)", (unsigned long)i + 1];
         switch (arc4random_uniform(isTextOnly ? 2 : 4)) {
             case 0: {
+                // MJK - should be safe to remove this senderTimestamp
                 TSIncomingMessage *message =
                     [[TSIncomingMessage alloc] initIncomingMessageWithTimestamp:[NSDate ows_millisecondTimeStamp]
                                                                        inThread:thread
@@ -3717,7 +3767,10 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
                                                                   attachmentIds:@[]
                                                                expiresInSeconds:0
                                                                   quotedMessage:nil
-                                                                   contactShare:nil];
+                                                                   contactShare:nil
+                                                                    linkPreview:nil
+                                                                serverTimestamp:nil
+                                                                wasReceivedByUD:NO];
                 [message markAsReadNowWithSendReadReceipt:NO transaction:transaction];
                 break;
             }
@@ -3730,6 +3783,7 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
                                          isRead:NO
                                   quotedMessage:nil
                                    contactShare:nil
+                                    linkPreview:nil
                                     transaction:transaction];
                 break;
             }
@@ -3742,9 +3796,12 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
                                                         byteCount:filesize
                                                       contentType:@"audio/mp3"
                                                    sourceFilename:@"test.mp3"
+                                                          caption:nil
+                                                   albumMessageId:nil
                                                    attachmentType:TSAttachmentTypeDefault];
                 pointer.state = TSAttachmentPointerStateFailed;
                 [pointer saveWithTransaction:transaction];
+                // MJK - should be safe to remove this senderTimestamp
                 TSIncomingMessage *message =
                     [[TSIncomingMessage alloc] initIncomingMessageWithTimestamp:[NSDate ows_millisecondTimeStamp]
                                                                        inThread:thread
@@ -3756,7 +3813,10 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
                                                                   ]
                                                                expiresInSeconds:0
                                                                   quotedMessage:nil
-                                                                   contactShare:nil];
+                                                                   contactShare:nil
+                                                                    linkPreview:nil
+                                                                serverTimestamp:nil
+                                                                wasReceivedByUD:NO];
                 [message markAsReadNowWithSendReadReceipt:NO transaction:transaction];
                 break;
             }
@@ -3766,11 +3826,13 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
 
                 TSAttachmentStream *attachmentStream = [[TSAttachmentStream alloc] initWithContentType:@"audio/mp3"
                                                                                              byteCount:filesize
-                                                                                        sourceFilename:filename];
+                                                                                        sourceFilename:filename
+                                                                                               caption:nil
+                                                                                        albumMessageId:nil];
 
                 NSError *error;
                 BOOL success = [attachmentStream writeData:[self createRandomNSDataOfSize:filesize] error:&error];
-                OWSAssert(success && !error);
+                OWSAssertDebug(success && !error);
                 [attachmentStream saveWithTransaction:transaction];
 
                 [self createFakeOutgoingMessage:thread
@@ -3783,6 +3845,7 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
                                  isVoiceMessage:NO
                                   quotedMessage:nil
                                    contactShare:nil
+                                    linkPreview:nil
                                     transaction:transaction];
                 break;
             }
@@ -3803,38 +3866,35 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
         recipientId,
         [TSAccountManager localNumber],
     ] mutableCopy];
-    NSData *groupId = [SecurityUtils generateRandomBytes:16];
+    NSData *groupId = [Randomness generateRandomBytes:kGroupIdLength];
     TSGroupModel *groupModel =
         [[TSGroupModel alloc] initWithTitle:groupName memberIds:recipientIds image:nil groupId:groupId];
 
     __block TSGroupThread *thread;
-    [OWSPrimaryStorage.dbReadWriteConnection
-        readWriteWithBlock:^(YapDatabaseReadWriteTransaction *_Nonnull transaction) {
-            thread = [TSGroupThread getOrCreateThreadWithGroupModel:groupModel transaction:transaction];
+    [self.dbConnection readWriteWithBlock:^(YapDatabaseReadWriteTransaction *_Nonnull transaction) {
+        thread = [TSGroupThread getOrCreateThreadWithGroupModel:groupModel transaction:transaction];
+        OWSAssertDebug(thread);
+
+        TSOutgoingMessage *message = [TSOutgoingMessage outgoingMessageInThread:thread
+                                                               groupMetaMessage:TSGroupMetaMessageNew
+                                                               expiresInSeconds:0];
+        [message updateWithCustomMessage:NSLocalizedString(@"GROUP_CREATED", nil) transaction:transaction];
+
+        [self.messageSenderJobQueue addMessage:message transaction:transaction];
+    }];
+
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)1.f * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+        [self.dbConnection readWriteWithBlock:^(YapDatabaseReadWriteTransaction *transaction) {
+            [ThreadUtil enqueueMessageWithText:[@(counter) description]
+                                      inThread:thread
+                              quotedReplyModel:nil
+                              linkPreviewDraft:nil
+                                   transaction:transaction];
         }];
-    OWSAssert(thread);
-
-    TSOutgoingMessage *message =
-        [TSOutgoingMessage outgoingMessageInThread:thread groupMetaMessage:TSGroupMessageNew expiresInSeconds:0];
-    [message updateWithCustomMessage:NSLocalizedString(@"GROUP_CREATED", nil)];
-
-    OWSMessageSender *messageSender = [Environment current].messageSender;
-    void (^completion)(void) = ^{
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)1.f * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-            [ThreadUtil sendMessageWithText:[@(counter) description]
-                                   inThread:thread
-                           quotedReplyModel:nil
-                              messageSender:messageSender];
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)1.f * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-                [self createNewGroups:counter - 1 recipientId:recipientId];
-            });
+            [self createNewGroups:counter - 1 recipientId:recipientId];
         });
-    };
-    [messageSender enqueueMessage:message
-                          success:completion
-                          failure:^(NSError *error) {
-                              completion();
-                          }];
+    });
 }
 
 + (void)injectFakeIncomingMessages:(NSUInteger)counter thread:(TSThread *)thread
@@ -3852,27 +3912,26 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
 
 + (void)injectIncomingMessageInThread:(TSThread *)thread counter:(NSUInteger)counter
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
-    DDLogInfo(@"%@ injectIncomingMessageInThread: %lu", self.logTag, (unsigned long)counter);
+    OWSLogInfo(@"injectIncomingMessageInThread: %lu", (unsigned long)counter);
 
     NSString *randomText = [self randomText];
     NSString *text = [[[@(counter) description] stringByAppendingString:@" "] stringByAppendingString:randomText];
 
-    OWSSignalServiceProtosDataMessageBuilder *dataMessageBuilder = [OWSSignalServiceProtosDataMessageBuilder new];
+    SSKProtoDataMessageBuilder *dataMessageBuilder = [SSKProtoDataMessage builder];
     [dataMessageBuilder setBody:text];
 
     if ([thread isKindOfClass:[TSGroupThread class]]) {
         TSGroupThread *groupThread = (TSGroupThread *)thread;
-        OWSSignalServiceProtosGroupContextBuilder *groupBuilder = [OWSSignalServiceProtosGroupContextBuilder new];
-        [groupBuilder setType:OWSSignalServiceProtosGroupContextTypeDeliver];
-        [groupBuilder setId:groupThread.groupModel.groupId];
-        [dataMessageBuilder setGroup:groupBuilder.build];
+        SSKProtoGroupContextBuilder *groupBuilder =
+            [SSKProtoGroupContext builderWithId:groupThread.groupModel.groupId type:SSKProtoGroupContextTypeDeliver];
+        [dataMessageBuilder setGroup:groupBuilder.buildIgnoringErrors];
     }
 
-    OWSSignalServiceProtosContentBuilder *payloadBuilder = [OWSSignalServiceProtosContentBuilder new];
-    [payloadBuilder setDataMessage:dataMessageBuilder.build];
-    NSData *plaintextData = [payloadBuilder build].data;
+    SSKProtoContentBuilder *payloadBuilder = [SSKProtoContent builder];
+    [payloadBuilder setDataMessage:dataMessageBuilder.buildIgnoringErrors];
+    NSData *plaintextData = [payloadBuilder buildIgnoringErrors].serializedDataIgnoringErrors;
 
     // Try to use an arbitrary member of the current thread that isn't
     // ourselves as the sender.
@@ -3886,24 +3945,25 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
     uint64_t timestamp = [NSDate ows_millisecondTimeStamp];
     NSString *source = recipientId;
     uint32_t sourceDevice = 1;
-    SSKEnvelopeType envelopeType = SSKEnvelopeTypeCiphertext;
+    SSKProtoEnvelopeType envelopeType = SSKProtoEnvelopeTypeCiphertext;
     NSData *content = plaintextData;
 
-    SSKEnvelope *envelope = [[SSKEnvelope alloc] initWithTimestamp:timestamp
-                                                            source:source
-                                                      sourceDevice:sourceDevice
-                                                              type:envelopeType
-                                                           content:content
-                                                     legacyMessage:nil];
-
+    SSKProtoEnvelopeBuilder *envelopeBuilder = [SSKProtoEnvelope builderWithType:envelopeType timestamp:timestamp];
+    [envelopeBuilder setSource:source];
+    [envelopeBuilder setSourceDevice:sourceDevice];
+    envelopeBuilder.content = content;
     NSError *error;
-    NSData *_Nullable envelopeData = [envelope serializedDataAndReturnError:&error];
-    OWSAssert(!error && envelopeData);
+    NSData *_Nullable envelopeData = [envelopeBuilder buildSerializedDataAndReturnError:&error];
+    if (error || !envelopeData) {
+        OWSFailDebug(@"Could not serialize envelope: %@.", error);
+        return;
+    }
 
     [OWSPrimaryStorage.dbReadWriteConnection readWriteWithBlock:^(YapDatabaseReadWriteTransaction *transaction) {
-        [[OWSBatchMessageProcessor sharedInstance] enqueueEnvelopeData:envelopeData
-                                                         plaintextData:plaintextData
-                                                           transaction:transaction];
+        [SSKEnvironment.shared.batchMessageProcessor enqueueEnvelopeData:envelopeData
+                                                           plaintextData:plaintextData
+                                                         wasReceivedByUD:NO
+                                                             transaction:transaction];
     }];
 }
 
@@ -3977,7 +4037,7 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
                       thread:(TSThread *)thread
                  transaction:(YapDatabaseReadWriteTransaction *)transaction
 {
-    DDLogInfo(@"%@ deleteRandomMessages: %zd", self.logTag, count);
+    OWSLogInfo(@"deleteRandomMessages: %zd", count);
 
     YapDatabaseViewTransaction *interactionsByThread = [transaction ext:TSMessageDatabaseViewExtensionName];
     NSUInteger messageCount = [interactionsByThread numberOfItemsInGroup:thread.uniqueId];
@@ -3994,7 +4054,7 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
 
         TSInteraction *_Nullable interaction =
             [interactionsByThread objectAtIndex:messageIdx.unsignedIntegerValue inGroup:thread.uniqueId];
-        OWSAssert(interaction);
+        OWSAssertDebug(interaction);
         [interactions addObject:interaction];
     }
 
@@ -4007,7 +4067,7 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
                     thread:(TSThread *)thread
                transaction:(YapDatabaseReadWriteTransaction *)transaction
 {
-    DDLogInfo(@"%@ deleteLastMessages", self.logTag);
+    OWSLogInfo(@"deleteLastMessages");
 
     YapDatabaseViewTransaction *interactionsByThread = [transaction ext:TSMessageDatabaseViewExtensionName];
     NSUInteger messageCount = (NSUInteger)[interactionsByThread numberOfItemsInGroup:thread.uniqueId];
@@ -4021,7 +4081,7 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
     for (NSNumber *messageIdx in messageIndices) {
         TSInteraction *_Nullable interaction =
             [interactionsByThread objectAtIndex:messageIdx.unsignedIntegerValue inGroup:thread.uniqueId];
-        OWSAssert(interaction);
+        OWSAssertDebug(interaction);
         [interactions addObject:interaction];
     }
     for (TSInteraction *interaction in interactions) {
@@ -4033,7 +4093,7 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
                             thread:(TSThread *)thread
                        transaction:(YapDatabaseReadWriteTransaction *)transaction
 {
-    DDLogInfo(@"%@ deleteRandomRecentMessages: %zd", self.logTag, count);
+    OWSLogInfo(@"deleteRandomRecentMessages: %zd", count);
 
     YapDatabaseViewTransaction *interactionsByThread = [transaction ext:TSMessageDatabaseViewExtensionName];
     NSInteger messageCount = (NSInteger)[interactionsByThread numberOfItemsInGroup:thread.uniqueId];
@@ -4054,7 +4114,7 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
 
         TSInteraction *_Nullable interaction =
             [interactionsByThread objectAtIndex:messageIdx.unsignedIntegerValue inGroup:thread.uniqueId];
-        OWSAssert(interaction);
+        OWSAssertDebug(interaction);
         [interactions addObject:interaction];
     }
     for (TSInteraction *interaction in interactions) {
@@ -4066,7 +4126,7 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
                                     thread:(TSThread *)thread
                                transaction:(YapDatabaseReadWriteTransaction *)transaction
 {
-    DDLogInfo(@"%@ insertAndDeleteNewOutgoingMessages: %zd", self.logTag, count);
+    OWSLogInfo(@"insertAndDeleteNewOutgoingMessages: %zd", count);
 
     NSMutableArray<TSOutgoingMessage *> *messages = [NSMutableArray new];
     for (NSUInteger i =0; i < count; i++) {
@@ -4079,7 +4139,7 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
                                                                     messageBody:text
                                                                    attachmentId:nil
                                                                expiresInSeconds:expiresInSeconds];
-        DDLogError(@"%@ insertAndDeleteNewOutgoingMessages timestamp: %llu.", self.logTag, message.timestamp);
+        OWSLogError(@"insertAndDeleteNewOutgoingMessages timestamp: %llu.", message.timestamp);
         [messages addObject:message];
     }
 
@@ -4095,7 +4155,7 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
                                thread:(TSThread *)thread
                           transaction:(YapDatabaseReadWriteTransaction *)initialTransaction
 {
-    DDLogInfo(@"%@ resurrectNewOutgoingMessages1.1: %zd", self.logTag, count);
+    OWSLogInfo(@"resurrectNewOutgoingMessages1.1: %zd", count);
 
     NSMutableArray<TSOutgoingMessage *> *messages = [NSMutableArray new];
     for (NSUInteger i =0; i < count; i++) {
@@ -4109,7 +4169,7 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
                                                                     messageBody:text
                                                                    attachmentId:nil
                                                                expiresInSeconds:expiresInSeconds];
-        DDLogError(@"%@ resurrectNewOutgoingMessages1 timestamp: %llu.", self.logTag, message.timestamp);
+        OWSLogError(@"resurrectNewOutgoingMessages1 timestamp: %llu.", message.timestamp);
         [messages addObject:message];
     }
 
@@ -4118,7 +4178,7 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
     }
 
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.f * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        DDLogInfo(@"%@ resurrectNewOutgoingMessages1.2: %zd", self.logTag, count);
+        OWSLogInfo(@"resurrectNewOutgoingMessages1.2: %zd", count);
         [OWSPrimaryStorage.dbReadWriteConnection readWriteWithBlock:^(YapDatabaseReadWriteTransaction *transaction) {
             for (TSOutgoingMessage *message in messages) {
                 [message removeWithTransaction:transaction];
@@ -4134,7 +4194,7 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
                                thread:(TSThread *)thread
                           transaction:(YapDatabaseReadWriteTransaction *)initialTransaction
 {
-    DDLogInfo(@"%@ resurrectNewOutgoingMessages2.1: %zd", self.logTag, count);
+    OWSLogInfo(@"resurrectNewOutgoingMessages2.1: %zd", count);
 
     NSMutableArray<TSOutgoingMessage *> *messages = [NSMutableArray new];
     for (NSUInteger i =0; i < count; i++) {
@@ -4142,6 +4202,7 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
         OWSDisappearingMessagesConfiguration *configuration =
             [OWSDisappearingMessagesConfiguration fetchObjectWithUniqueID:thread.uniqueId
                                                               transaction:initialTransaction];
+        // MJK TODO - remove senderTimestamp
         TSOutgoingMessage *message = [[TSOutgoingMessage alloc]
             initOutgoingMessageWithTimestamp:[NSDate ows_millisecondTimeStamp]
                                     inThread:thread
@@ -4150,10 +4211,11 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
                             expiresInSeconds:(configuration.isEnabled ? configuration.durationSeconds
                                                                       : 0)expireStartedAt:0
                               isVoiceMessage:NO
-                            groupMetaMessage:TSGroupMessageUnspecified
+                            groupMetaMessage:TSGroupMetaMessageUnspecified
                                quotedMessage:nil
-                                contactShare:nil];
-        DDLogError(@"%@ resurrectNewOutgoingMessages2 timestamp: %llu.", self.logTag, message.timestamp);
+                                contactShare:nil
+                                 linkPreview:nil];
+        OWSLogError(@"resurrectNewOutgoingMessages2 timestamp: %llu.", message.timestamp);
         [messages addObject:message];
     }
 
@@ -4163,14 +4225,14 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
     }
 
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.f * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        DDLogInfo(@"%@ resurrectNewOutgoingMessages2.2: %zd", self.logTag, count);
+        OWSLogInfo(@"resurrectNewOutgoingMessages2.2: %zd", count);
         [OWSPrimaryStorage.dbReadWriteConnection readWriteWithBlock:^(YapDatabaseReadWriteTransaction *transaction) {
             for (TSOutgoingMessage *message in messages) {
                 [message removeWithTransaction:transaction];
             }
         }];
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.f * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            DDLogInfo(@"%@ resurrectNewOutgoingMessages2.3: %zd", self.logTag, count);
+            OWSLogInfo(@"resurrectNewOutgoingMessages2.3: %zd", count);
             [OWSPrimaryStorage.dbReadWriteConnection
                 readWriteWithBlock:^(YapDatabaseReadWriteTransaction *transaction) {
                     for (TSOutgoingMessage *message in messages) {
@@ -4183,7 +4245,7 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
 
 + (void)createTimestampMessagesInThread:(TSThread *)thread
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     long long now = (long long)[NSDate ows_millisecondTimeStamp];
     NSArray<NSNumber *> *timestamps = @[
@@ -4209,6 +4271,7 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
         for (NSNumber *timestamp in timestamps) {
             NSString *randomText = [self randomText];
             {
+                // Legit usage of SenderTimestamp to backdate incoming sent messages for Debug
                 TSIncomingMessage *message =
                     [[TSIncomingMessage alloc] initIncomingMessageWithTimestamp:timestamp.unsignedLongLongValue
                                                                        inThread:thread
@@ -4218,10 +4281,14 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
                                                                   attachmentIds:[NSMutableArray new]
                                                                expiresInSeconds:0
                                                                   quotedMessage:nil
-                                                                   contactShare:nil];
+                                                                   contactShare:nil
+                                                                    linkPreview:nil
+                                                                serverTimestamp:nil
+                                                                wasReceivedByUD:NO];
                 [message markAsReadNowWithSendReadReceipt:NO transaction:transaction];
             }
             {
+                // MJK TODO - this might be the one place we actually use senderTimestamp
                 TSOutgoingMessage *message =
                     [[TSOutgoingMessage alloc] initOutgoingMessageWithTimestamp:timestamp.unsignedLongLongValue
                                                                        inThread:thread
@@ -4230,12 +4297,13 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
                                                                expiresInSeconds:0
                                                                 expireStartedAt:0
                                                                  isVoiceMessage:NO
-                                                               groupMetaMessage:TSGroupMessageUnspecified
+                                                               groupMetaMessage:TSGroupMetaMessageUnspecified
                                                                   quotedMessage:nil
-                                                                   contactShare:nil];
+                                                                   contactShare:nil
+                                                                    linkPreview:nil];
                 [message saveWithTransaction:transaction];
                 [message updateWithFakeMessageState:TSOutgoingMessageStateSent transaction:transaction];
-                [message updateWithSentRecipient:recipientId transaction:transaction];
+                [message updateWithSentRecipient:recipientId wasSentByUD:NO transaction:transaction];
                 [message updateWithDeliveredRecipient:recipientId deliveryTimestamp:timestamp transaction:transaction];
                 [message updateWithReadRecipientId:recipientId
                                      readTimestamp:timestamp.unsignedLongLongValue
@@ -4248,6 +4316,8 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
 + (void)createDisappearingMessagesWhichFailedToStartInThread:(TSThread *)thread
 {
     uint64_t now = [NSDate ows_millisecondTimeStamp];
+
+    // MJK TODO - should be safe to remove this senderTimestamp
     TSIncomingMessage *message = [[TSIncomingMessage alloc]
         initIncomingMessageWithTimestamp:now
                                 inThread:thread
@@ -4258,7 +4328,10 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
                            attachmentIds:[NSMutableArray new]
                         expiresInSeconds:60
                            quotedMessage:nil
-                            contactShare:nil];
+                            contactShare:nil
+                             linkPreview:nil
+                         serverTimestamp:nil
+                         wasReceivedByUD:NO];
     // private setter to avoid starting expire machinery.
     message.read = YES;
     [message save];
@@ -4276,7 +4349,7 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
         readWriteWithBlock:^(YapDatabaseReadWriteTransaction *transaction) {
             for (NSString *string in strings) {
                 // DO NOT log these strings with the debugger attached.
-                //        DDLogInfo(@"%@ %@", self.logTag, string);
+                //        OWSLogInfo(@"%@", string);
 
                 {
                     [self createFakeIncomingMessage:thread
@@ -4293,13 +4366,13 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
                         recipientId,
                         [TSAccountManager localNumber],
                     ] mutableCopy];
-                    NSData *groupId = [SecurityUtils generateRandomBytes:16];
+                    NSData *groupId = [Randomness generateRandomBytes:kGroupIdLength];
                     TSGroupModel *groupModel =
                         [[TSGroupModel alloc] initWithTitle:groupName memberIds:recipientIds image:nil groupId:groupId];
 
                     TSGroupThread *groupThread =
                         [TSGroupThread getOrCreateThreadWithGroupModel:groupModel transaction:transaction];
-                    OWSAssert(groupThread);
+                    OWSAssertDebug(groupThread);
                 }
             }
         }];
@@ -4315,7 +4388,7 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
     [OWSPrimaryStorage.sharedManager.dbReadWriteConnection
         readWriteWithBlock:^(YapDatabaseReadWriteTransaction *transaction) {
             for (NSString *string in strings) {
-                DDLogInfo(@"%@ sending zalgo", self.logTag);
+                OWSLogInfo(@"sending zalgo");
 
                 {
                     [self createFakeIncomingMessage:thread
@@ -4332,13 +4405,13 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
                         recipientId,
                         [TSAccountManager localNumber],
                     ] mutableCopy];
-                    NSData *groupId = [SecurityUtils generateRandomBytes:16];
+                    NSData *groupId = [Randomness generateRandomBytes:kGroupIdLength];
                     TSGroupModel *groupModel =
                         [[TSGroupModel alloc] initWithTitle:groupName memberIds:recipientIds image:nil groupId:groupId];
 
                     TSGroupThread *groupThread =
                         [TSGroupThread getOrCreateThreadWithGroupModel:groupModel transaction:transaction];
-                    OWSAssert(groupThread);
+                    OWSAssertDebug(groupThread);
                 }
             }
         }];
@@ -4358,7 +4431,6 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
         }
         NSString *filename = filenames.lastObject;
         [filenames removeLastObject];
-        OWSMessageSender *messageSender = [Environment current].messageSender;
         NSString *utiType = (NSString *)kUTTypeData;
         const NSUInteger kDataLength = 32;
         DataSource *_Nullable dataSource =
@@ -4367,17 +4439,13 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
         SignalAttachment *attachment =
             [SignalAttachment attachmentWithDataSource:dataSource dataUTI:utiType imageQuality:TSImageQualityOriginal];
 
-        OWSAssert(attachment);
+        OWSAssertDebug(attachment);
         if ([attachment hasError]) {
-            DDLogError(@"attachment[%@]: %@", [attachment sourceFilename], [attachment errorName]);
+            OWSLogError(@"attachment[%@]: %@", [attachment sourceFilename], [attachment errorName]);
             [DDLog flushLog];
         }
-        OWSAssert(![attachment hasError]);
-        [ThreadUtil sendMessageWithAttachment:attachment
-                                     inThread:thread
-                             quotedReplyModel:nil
-                                messageSender:messageSender
-                                   completion:nil];
+        OWSAssertDebug(![attachment hasError]);
+        [ThreadUtil enqueueMessageWithAttachment:attachment inThread:thread quotedReplyModel:nil];
 
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 1 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
             sendUnsafeFile();
@@ -4418,7 +4486,7 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
             [label appendString:@" (Sent)"];
         }
     } else {
-        OWSFail(@"%@ unknown message state.", self.logTag);
+        OWSFailDebug(@"unknown message state.");
     }
     return label;
 }
@@ -4431,13 +4499,14 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
                                           isRead:(BOOL)isRead
                                    quotedMessage:(nullable TSQuotedMessage *)quotedMessage
                                     contactShare:(nullable OWSContact *)contactShare
+                                     linkPreview:(nullable OWSLinkPreview *)linkPreview
                                      transaction:(YapDatabaseReadWriteTransaction *)transaction
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     // Seamlessly convert oversize text messages to oversize text attachments.
     if ([messageBody lengthOfBytesUsingEncoding:NSUTF8StringEncoding] >= kOversizeTextMessageSizeThreshold) {
-        OWSAssert(!fakeAssetLoader);
+        OWSAssertDebug(!fakeAssetLoader);
         fakeAssetLoader = [DebugUIMessagesAssetLoader oversizeTextInstanceWithText:messageBody];
         messageBody = nil;
     }
@@ -4457,6 +4526,7 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
                             isVoiceMessage:attachment.isVoiceMessage
                              quotedMessage:quotedMessage
                               contactShare:contactShare
+                               linkPreview:linkPreview
                                transaction:transaction];
 }
 
@@ -4470,17 +4540,19 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
                                   isVoiceMessage:(BOOL)isVoiceMessage
                                    quotedMessage:(nullable TSQuotedMessage *)quotedMessage
                                     contactShare:(nullable OWSContact *)contactShare
+                                     linkPreview:(nullable OWSLinkPreview *)linkPreview
                                      transaction:(YapDatabaseReadWriteTransaction *)transaction
 {
-    OWSAssert(thread);
-    OWSAssert(transaction);
-    OWSAssert(messageBody.length > 0 || attachmentId.length > 0 || contactShare);
+    OWSAssertDebug(thread);
+    OWSAssertDebug(transaction);
+    OWSAssertDebug(messageBody.length > 0 || attachmentId.length > 0 || contactShare);
 
     NSMutableArray<NSString *> *attachmentIds = [NSMutableArray new];
     if (attachmentId) {
         [attachmentIds addObject:attachmentId];
     }
 
+    // MJK TODO - remove senderTimestamp
     TSOutgoingMessage *message =
         [[TSOutgoingMessage alloc] initOutgoingMessageWithTimestamp:[NSDate ows_millisecondTimeStamp]
                                                            inThread:thread
@@ -4489,9 +4561,10 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
                                                    expiresInSeconds:0
                                                     expireStartedAt:0
                                                      isVoiceMessage:isVoiceMessage
-                                                   groupMetaMessage:TSGroupMessageUnspecified
+                                                   groupMetaMessage:TSGroupMetaMessageUnspecified
                                                       quotedMessage:quotedMessage
-                                                       contactShare:contactShare];
+                                                       contactShare:contactShare
+                                                        linkPreview:linkPreview];
 
     if (attachmentId.length > 0 && filename.length > 0) {
         message.attachmentFilenameMap[attachmentId] = filename;
@@ -4501,14 +4574,14 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
     [message updateWithFakeMessageState:messageState transaction:transaction];
     if (isDelivered) {
         NSString *_Nullable recipientId = thread.recipientIdentifiers.lastObject;
-        OWSAssert(recipientId.length > 0);
+        OWSAssertDebug(recipientId.length > 0);
         [message updateWithDeliveredRecipient:recipientId
                             deliveryTimestamp:@([NSDate ows_millisecondTimeStamp])
                                   transaction:transaction];
     }
     if (isRead) {
         NSString *_Nullable recipientId = thread.recipientIdentifiers.lastObject;
-        OWSAssert(recipientId.length > 0);
+        OWSAssertDebug(recipientId.length > 0);
         [message updateWithReadRecipientId:recipientId
                              readTimestamp:[NSDate ows_millisecondTimeStamp]
                                transaction:transaction];
@@ -4523,11 +4596,11 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
                                    quotedMessage:(nullable TSQuotedMessage *)quotedMessage
                                      transaction:(YapDatabaseReadWriteTransaction *)transaction
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     // Seamlessly convert oversize text messages to oversize text attachments.
     if ([messageBody lengthOfBytesUsingEncoding:NSUTF8StringEncoding] >= kOversizeTextMessageSizeThreshold) {
-        OWSAssert(!fakeAssetLoader);
+        OWSAssertDebug(!fakeAssetLoader);
         fakeAssetLoader = [DebugUIMessagesAssetLoader oversizeTextInstanceWithText:messageBody];
         messageBody = nil;
     }
@@ -4556,9 +4629,9 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
                                    quotedMessage:(nullable TSQuotedMessage *)quotedMessage
                                      transaction:(YapDatabaseReadWriteTransaction *)transaction
 {
-    OWSAssert(thread);
-    OWSAssert(transaction);
-    OWSAssert(messageBody.length > 0 || attachmentId.length > 0);
+    OWSAssertDebug(thread);
+    OWSAssertDebug(transaction);
+    OWSAssertDebug(messageBody.length > 0 || attachmentId.length > 0);
 
     NSMutableArray<NSString *> *attachmentIds = [NSMutableArray new];
     if (attachmentId) {
@@ -4570,6 +4643,7 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
     //    uint64_t millisAgo = (uint64_t)(((double)arc4random() / ((double)0xffffffff)) * yearsMillis);
     //    uint64_t timestamp = [NSDate ows_millisecondTimeStamp] - millisAgo;
 
+    // MJK TODO - should be safe to remove this senderTimestamp
     TSIncomingMessage *message =
         [[TSIncomingMessage alloc] initIncomingMessageWithTimestamp:[NSDate ows_millisecondTimeStamp]
                                                            inThread:thread
@@ -4579,7 +4653,10 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
                                                       attachmentIds:attachmentIds
                                                    expiresInSeconds:0
                                                       quotedMessage:quotedMessage
-                                                       contactShare:nil];
+                                                       contactShare:nil
+                                                        linkPreview:nil
+                                                    serverTimestamp:nil
+                                                    wasReceivedByUD:NO];
     [message markAsReadNowWithSendReadReceipt:NO transaction:transaction];
     return message;
 }
@@ -4588,22 +4665,25 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
                 isAttachmentDownloaded:(BOOL)isAttachmentDownloaded
                            transaction:(YapDatabaseReadWriteTransaction *)transaction
 {
-    OWSAssert(fakeAssetLoader);
-    OWSAssert(fakeAssetLoader.filePath);
-    OWSAssert(transaction);
+    OWSAssertDebug(fakeAssetLoader);
+    OWSAssertDebug(fakeAssetLoader.filePath);
+    OWSAssertDebug(transaction);
 
     if (isAttachmentDownloaded) {
-        DataSource *dataSource = [DataSourcePath dataSourceWithFilePath:fakeAssetLoader.filePath];
+        DataSource *dataSource =
+            [DataSourcePath dataSourceWithFilePath:fakeAssetLoader.filePath shouldDeleteOnDeallocation:NO];
         NSString *filename = dataSource.sourceFilename;
         // To support "fake missing" attachments, we sometimes lie about the
         // length of the data.
         UInt32 nominalDataLength = (UInt32)MAX((NSUInteger)1, dataSource.dataLength);
         TSAttachmentStream *attachmentStream = [[TSAttachmentStream alloc] initWithContentType:fakeAssetLoader.mimeType
                                                                                      byteCount:nominalDataLength
-                                                                                sourceFilename:filename];
+                                                                                sourceFilename:filename
+                                                                                       caption:nil
+                                                                                albumMessageId:nil];
         NSError *error;
         BOOL success = [attachmentStream writeData:dataSource.data error:&error];
-        OWSAssert(success && !error);
+        OWSAssertDebug(success && !error);
         [attachmentStream saveWithTransaction:transaction];
         return attachmentStream;
     } else {
@@ -4615,12 +4695,105 @@ typedef OWSContact * (^OWSContactBlock)(YapDatabaseReadWriteTransaction *transac
                                                 byteCount:filesize
                                               contentType:fakeAssetLoader.mimeType
                                            sourceFilename:fakeAssetLoader.filename
+                                                  caption:nil
+                                           albumMessageId:nil
                                            attachmentType:TSAttachmentTypeDefault];
         attachmentPointer.state = TSAttachmentPointerStateFailed;
         [attachmentPointer saveWithTransaction:transaction];
         return attachmentPointer;
     }
 }
+
++ (void)sendMediaAlbumInThread:(TSThread *)thread
+{
+    OWSLogInfo(@"");
+
+    const uint32_t kMinImageCount = 2;
+    const uint32_t kMaxImageCount = 10;
+    uint32_t imageCount = kMinImageCount + arc4random_uniform(kMaxImageCount - kMinImageCount);
+    NSString *_Nullable messageBody = (arc4random_uniform(2) > 0 ? @"This is the media gallery title..." : nil);
+    [self sendMediaAlbumInThread:thread imageCount:imageCount messageBody:messageBody];
+}
+
++ (void)sendExemplaryMediaGalleriesInThread:(TSThread *)thread
+{
+    OWSLogInfo(@"");
+
+    [self sendMediaAlbumInThread:thread imageCount:2 messageBody:nil];
+    [self sendMediaAlbumInThread:thread imageCount:3 messageBody:nil];
+    [self sendMediaAlbumInThread:thread imageCount:4 messageBody:nil];
+    [self sendMediaAlbumInThread:thread imageCount:5 messageBody:nil];
+    [self sendMediaAlbumInThread:thread imageCount:6 messageBody:nil];
+    [self sendMediaAlbumInThread:thread imageCount:7 messageBody:nil];
+    NSString *messageBody = @"This is the media gallery title...";
+    [self sendMediaAlbumInThread:thread imageCount:2 messageBody:messageBody];
+    [self sendMediaAlbumInThread:thread imageCount:3 messageBody:messageBody];
+    [self sendMediaAlbumInThread:thread imageCount:4 messageBody:messageBody];
+    [self sendMediaAlbumInThread:thread imageCount:5 messageBody:messageBody];
+    [self sendMediaAlbumInThread:thread imageCount:6 messageBody:messageBody];
+    [self sendMediaAlbumInThread:thread imageCount:7 messageBody:messageBody];
+}
+
++ (void)sendMediaAlbumInThread:(TSThread *)thread
+                    imageCount:(uint32_t)imageCount
+                   messageBody:(nullable NSString *)messageBody
+              fakeAssetLoaders:(NSArray<DebugUIMessagesAssetLoader *> *)fakeAssetLoaders
+{
+    OWSAssertDebug(imageCount > 0);
+    OWSLogInfo(@"");
+
+    NSMutableArray<SignalAttachment *> *attachments = [NSMutableArray new];
+    for (uint32_t i = 0; i < imageCount; i++) {
+        DebugUIMessagesAssetLoader *fakeAssetLoader
+            = fakeAssetLoaders[arc4random_uniform((uint32_t)fakeAssetLoaders.count)];
+        OWSAssertDebug([NSFileManager.defaultManager fileExistsAtPath:fakeAssetLoader.filePath]);
+        DataSource *dataSource =
+            [DataSourcePath dataSourceWithFilePath:fakeAssetLoader.filePath shouldDeleteOnDeallocation:NO];
+        SignalAttachment *attachment =
+            [SignalAttachment attachmentWithDataSource:dataSource
+                                               dataUTI:[MIMETypeUtil utiTypeForMIMEType:fakeAssetLoader.mimeType]
+                                          imageQuality:TSImageQualityOriginal];
+        if (arc4random_uniform(2) == 0) {
+            attachment.captionText = [self randomText];
+        }
+        [attachments addObject:attachment];
+    }
+
+    [self.dbConnection readWriteWithBlock:^(YapDatabaseReadWriteTransaction *transaction) {
+        TSOutgoingMessage *message = [ThreadUtil enqueueMessageWithAttachments:attachments
+                                                                   messageBody:messageBody
+                                                                      inThread:thread
+                                                              quotedReplyModel:nil];
+        OWSLogError(@"timestamp: %llu.", message.timestamp);
+    }];
+}
+
++ (void)sendMediaAlbumInThread:(TSThread *)thread
+                    imageCount:(uint32_t)imageCount
+                   messageBody:(nullable NSString *)messageBody
+{
+    OWSAssertDebug(thread);
+
+    NSArray<DebugUIMessagesAssetLoader *> *fakeAssetLoaders = @[
+        [DebugUIMessagesAssetLoader jpegInstance],
+        [DebugUIMessagesAssetLoader largePngInstance],
+        [DebugUIMessagesAssetLoader tinyPngInstance],
+        [DebugUIMessagesAssetLoader gifInstance],
+        [DebugUIMessagesAssetLoader mp4Instance],
+    ];
+    [DebugUIMessagesAssetLoader prepareAssetLoaders:fakeAssetLoaders
+        success:^{
+            [self sendMediaAlbumInThread:thread
+                              imageCount:imageCount
+                             messageBody:messageBody
+                        fakeAssetLoaders:fakeAssetLoaders];
+        }
+        failure:^{
+            OWSLogError(@"Could not prepare fake asset loaders.");
+        }];
+}
+
+#endif
 
 @end
 

@@ -4,7 +4,8 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-@class OWSSignalServiceProtosSyncMessageRead;
+@class OWSPrimaryStorage;
+@class SSKProtoSyncMessageRead;
 @class TSIncomingMessage;
 @class TSOutgoingMessage;
 @class TSThread;
@@ -32,6 +33,7 @@ extern NSString *const kIncomingMessageMarkedAsReadNotification;
 @interface OWSReadReceiptManager : NSObject
 
 - (instancetype)init NS_UNAVAILABLE;
+- (instancetype)initWithPrimaryStorage:(OWSPrimaryStorage *)primaryStorage NS_DESIGNATED_INITIALIZER;
 + (instancetype)sharedManager;
 
 #pragma mark - Sender/Recipient Read Receipts
@@ -49,7 +51,7 @@ extern NSString *const kIncomingMessageMarkedAsReadNotification;
 
 #pragma mark - Linked Device Read Receipts
 
-- (void)processReadReceiptsFromLinkedDevice:(NSArray<OWSSignalServiceProtosSyncMessageRead *> *)readReceiptProtos
+- (void)processReadReceiptsFromLinkedDevice:(NSArray<SSKProtoSyncMessageRead *> *)readReceiptProtos
                               readTimestamp:(uint64_t)readTimestamp
                                 transaction:(YapDatabaseReadWriteTransaction *)transaction;
 
@@ -69,7 +71,7 @@ extern NSString *const kIncomingMessageMarkedAsReadNotification;
 // This method can be called from any thread.
 - (void)messageWasReadLocally:(TSIncomingMessage *)message;
 
-- (void)markAsReadLocallyBeforeTimestamp:(uint64_t)timestamp thread:(TSThread *)thread;
+- (void)markAsReadLocallyBeforeSortId:(uint64_t)sortId thread:(TSThread *)thread;
 
 #pragma mark - Settings
 

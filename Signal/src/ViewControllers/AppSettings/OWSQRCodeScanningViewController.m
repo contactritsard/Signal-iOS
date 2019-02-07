@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 #import "OWSQRCodeScanningViewController.h"
@@ -93,6 +93,11 @@ NS_ASSUME_NONNULL_BEGIN
     [self stopCapture];
 }
 
+- (void)viewWillLayoutSubviews
+{
+    self.capture.layer.frame = self.view.bounds;
+}
+
 - (void)startCapture
 {
     self.captureEnabled = YES;
@@ -101,10 +106,10 @@ NS_ASSUME_NONNULL_BEGIN
             self.capture = [[ZXCapture alloc] init];
             self.capture.camera = self.capture.back;
             self.capture.focusMode = AVCaptureFocusModeContinuousAutoFocus;
-            self.capture.layer.frame = self.view.bounds;
             self.capture.delegate = self;
 
             dispatch_async(dispatch_get_main_queue(), ^{
+                self.capture.layer.frame = self.view.bounds;
                 [self.view.layer addSublayer:self.capture.layer];
                 [self.view bringSubviewToFront:self.maskingView];
                 [self.capture start];
@@ -135,7 +140,7 @@ NS_ASSUME_NONNULL_BEGIN
 
     if (self.scanDelegate) {
         if ([self.scanDelegate respondsToSelector:@selector(controller:didDetectQRCodeWithData:)]) {
-            DDLogInfo(@"%@ Scanned Data Code.", self.logTag);
+            OWSLogInfo(@"Scanned Data Code.");
             ZXByteArray *byteArray = result.resultMetadata[@(kResultMetadataTypeByteSegments)][0];
             NSData *decodedData = [NSData dataWithBytes:byteArray.array length:byteArray.length];
 
@@ -143,7 +148,7 @@ NS_ASSUME_NONNULL_BEGIN
         }
 
         if ([self.scanDelegate respondsToSelector:@selector(controller:didDetectQRCodeWithString:)]) {
-            DDLogInfo(@"%@ Scanned String Code.", self.logTag);
+            OWSLogInfo(@"Scanned String Code.");
             [self.scanDelegate controller:self didDetectQRCodeWithString:result.text];
         }
     }

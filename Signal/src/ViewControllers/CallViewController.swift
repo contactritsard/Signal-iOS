@@ -12,11 +12,14 @@ import SignalMessaging
 // TODO: Ensure buttons enabled & disabled as necessary.
 class CallViewController: OWSViewController, CallObserver, CallServiceObserver, CallAudioServiceDelegate {
 
-    let TAG = "[CallViewController]"
-
     // Dependencies
+
     var callUIAdapter: CallUIAdapter {
-        return SignalApp.shared().callUIAdapter
+        return AppEnvironment.shared.callService.callUIAdapter
+    }
+
+    var proximityMonitoringManager: OWSProximityMonitoringManager {
+        return Environment.shared.proximityMonitoringManager
     }
 
     // Feature Flag
@@ -104,7 +107,7 @@ class CallViewController: OWSViewController, CallObserver, CallServiceObserver, 
     // MARK: - Audio Source
 
     var hasAlternateAudioSources: Bool {
-        Logger.info("\(TAG) available audio sources: \(allAudioSources)")
+        Logger.info("available audio sources: \(allAudioSources)")
         // internal mic and speakerphone will be the first two, any more than one indicates e.g. an attached bluetooth device.
 
         // TODO is this sufficient? Are their devices w/ bluetooth but no external speaker? e.g. ipod?
@@ -120,7 +123,7 @@ class CallViewController: OWSViewController, CallObserver, CallServiceObserver, 
                     return true
                 } else {
                     guard let portDescription = audioSource.portDescription else {
-                        owsFail("Only built in speaker should be lacking a port description.")
+                        owsFailDebug("Only built in speaker should be lacking a port description.")
                         return false
                     }
 
@@ -138,11 +141,11 @@ class CallViewController: OWSViewController, CallObserver, CallServiceObserver, 
 
     @available(*, unavailable, message: "use init(call:) constructor instead.")
     required init?(coder aDecoder: NSCoder) {
-        fatalError("Unimplemented")
+        notImplemented()
     }
 
     required init(call: SignalCall) {
-        contactsManager = Environment.current().contactsManager
+        contactsManager = Environment.shared.contactsManager
         self.call = call
         self.thread = TSContactThread.getOrCreateThread(contactId: call.remotePhoneNumber)
         super.init(nibName: nil, bundle: nil)
@@ -153,7 +156,9 @@ class CallViewController: OWSViewController, CallObserver, CallServiceObserver, 
     }
 
     deinit {
+        Logger.info("")
         NotificationCenter.default.removeObserver(self)
+        self.proximityMonitoringManager.remove(lifetime: self)
     }
 
     @objc func didBecomeActive() {
@@ -167,15 +172,15 @@ class CallViewController: OWSViewController, CallObserver, CallServiceObserver, 
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
 
-        UIDevice.current.isProximityMonitoringEnabled = false
-
         callDurationTimer?.invalidate()
         callDurationTimer = nil
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        UIDevice.current.isProximityMonitoringEnabled = true
+
+        ensureProximityMonitoring()
+
         updateCallUI(callState: call.state)
 
         self.becomeFirstResponder()
@@ -189,8 +194,9 @@ class CallViewController: OWSViewController, CallObserver, CallServiceObserver, 
 
     override func loadView() {
         self.view = UIView()
-
+        self.view.backgroundColor = UIColor.black
         self.view.layoutMargins = UIEdgeInsets(top: 16, left: 20, bottom: 16, right: 20)
+
         createViews()
         createViewConstraints()
     }
@@ -202,14 +208,14 @@ class CallViewController: OWSViewController, CallObserver, CallServiceObserver, 
         updateAvatarImage()
         NotificationCenter.default.addObserver(forName: .OWSContactsManagerSignalAccountsDidChange, object: nil, queue: nil) { [weak self] _ in
             guard let strongSelf = self else { return }
-            Logger.info("\(strongSelf.TAG) updating avatar image")
+            Logger.info("updating avatar image")
             strongSelf.updateAvatarImage()
         }
 
         // Subscribe for future call updates
         call.addObserverAndSyncState(observer: self)
 
-        SignalApp.shared().callService.addObserverAndSyncState(observer: self)
+        AppEnvironment.shared.callService.addObserverAndSyncState(observer: self)
 
         assert(callUIAdapter.audioService.delegate == nil)
         callUIAdapter.audioService.delegate = self
@@ -396,7 +402,7 @@ class CallViewController: OWSViewController, CallObserver, CallServiceObserver, 
         videoModeFlipCameraButton = createButton(image: #imageLiteral(resourceName: "video-switch-camera-unselected"),
                                                  action: #selector(didPressFlipCamera))
 
-        videoModeFlipCameraButton.accessibilityLabel = NSLocalizedString("CALL_VIEW_SWITCH_CAMERA_DIRECTION", comment: "Accessibility label to toggle front vs. rear facing camera")
+        videoModeFlipCameraButton.accessibilityLabel = NSLocalizedString("CALL_VIEW_SWITCH_CAMERA_DIRECTION", comment: "Accessibility label to toggle front- vs. rear-facing camera")
         videoModeFlipCameraButton.alpha = 0.9
 
         videoModeVideoButton = createButton(image: #imageLiteral(resourceName: "video-video-unselected"),
@@ -420,7 +426,7 @@ class CallViewController: OWSViewController, CallObserver, CallServiceObserver, 
     }
 
     func presentAudioSourcePicker() {
-        SwiftAssertIsOnMainThread(#function)
+        AssertIsOnMainThread()
 
         let actionSheetController = UIAlertController(title: nil, message: nil, preferredStyle: .actionSheet)
 
@@ -450,7 +456,7 @@ class CallViewController: OWSViewController, CallObserver, CallServiceObserver, 
     }
 
     func updateAvatarImage() {
-        contactAvatarView.image = OWSAvatarBuilder.buildImage(thread: thread, diameter: 400, contactsManager: contactsManager)
+        contactAvatarView.image = OWSAvatarBuilder.buildImage(thread: thread, diameter: 400)
     }
 
     func createIncomingCallControls() {
@@ -598,7 +604,7 @@ class CallViewController: OWSViewController, CallObserver, CallServiceObserver, 
 
     func showCallFailed(error: Error) {
         // TODO Show something in UI.
-        Logger.error("\(TAG) call failed with error: \(error)")
+        Logger.error("call failed with error: \(error)")
     }
 
     // MARK: - View State
@@ -780,10 +786,10 @@ class CallViewController: OWSViewController, CallObserver, CallServiceObserver, 
         // Dismiss Handling
         switch callState {
         case .remoteHangup, .remoteBusy, .localFailure:
-            Logger.debug("\(TAG) dismissing after delay because new state is \(callState)")
+            Logger.debug("dismissing after delay because new state is \(callState)")
             dismissIfPossible(shouldDelay: true)
         case .localHangup:
-            Logger.debug("\(TAG) dismissing immediately from local hangup")
+            Logger.debug("dismissing immediately from local hangup")
             dismissIfPossible(shouldDelay: false)
         default: break
         }
@@ -837,7 +843,7 @@ class CallViewController: OWSViewController, CallObserver, CallServiceObserver, 
      * Ends a connected call. Do not confuse with `didPressDeclineCall`.
      */
     @objc func didPressHangup(sender: UIButton) {
-        Logger.info("\(TAG) called \(#function)")
+        Logger.info("")
 
         callUIAdapter.localHangupCall(call)
 
@@ -845,14 +851,14 @@ class CallViewController: OWSViewController, CallObserver, CallServiceObserver, 
     }
 
     @objc func didPressMute(sender muteButton: UIButton) {
-        Logger.info("\(TAG) called \(#function)")
+        Logger.info("")
         muteButton.isSelected = !muteButton.isSelected
 
         callUIAdapter.setIsMuted(call: call, isMuted: muteButton.isSelected)
     }
 
     @objc func didPressAudioSource(sender button: UIButton) {
-        Logger.info("\(TAG) called \(#function)")
+        Logger.info("")
 
         if self.hasAlternateAudioSources {
             presentAudioSourcePicker()
@@ -862,26 +868,26 @@ class CallViewController: OWSViewController, CallObserver, CallServiceObserver, 
     }
 
     func didPressSpeakerphone(sender button: UIButton) {
-        Logger.info("\(TAG) called \(#function)")
+        Logger.info("")
 
         button.isSelected = !button.isSelected
         callUIAdapter.audioService.requestSpeakerphone(isEnabled: button.isSelected)
     }
 
     func didPressTextMessage(sender button: UIButton) {
-        Logger.info("\(TAG) called \(#function)")
+        Logger.info("")
 
         dismissIfPossible(shouldDelay: false)
     }
 
     @objc func didPressAnswerCall(sender: UIButton) {
-        Logger.info("\(TAG) called \(#function)")
+        Logger.info("")
 
         callUIAdapter.answerCall(call)
     }
 
     @objc func didPressVideo(sender: UIButton) {
-        Logger.info("\(TAG) called \(#function)")
+        Logger.info("")
         let hasLocalVideo = !sender.isSelected
 
         callUIAdapter.setHasLocalVideo(call: call, hasLocalVideo: hasLocalVideo)
@@ -891,7 +897,7 @@ class CallViewController: OWSViewController, CallObserver, CallServiceObserver, 
         sender.isSelected = !sender.isSelected
 
         let isUsingFrontCamera = !sender.isSelected
-        Logger.info("\(TAG) in \(#function) with isUsingFrontCamera: \(isUsingFrontCamera)")
+        Logger.info("with isUsingFrontCamera: \(isUsingFrontCamera)")
 
         callUIAdapter.setCameraSource(call: call, isUsingFrontCamera: isUsingFrontCamera)
     }
@@ -900,7 +906,7 @@ class CallViewController: OWSViewController, CallObserver, CallServiceObserver, 
      * Denies an incoming not-yet-connected call, Do not confuse with `didPressHangup`.
      */
     @objc func didPressDeclineCall(sender: UIButton) {
-        Logger.info("\(TAG) called \(#function)")
+        Logger.info("")
 
         callUIAdapter.declineCall(call)
 
@@ -908,7 +914,7 @@ class CallViewController: OWSViewController, CallObserver, CallServiceObserver, 
     }
 
     @objc func didPressShowCallSettings(sender: UIButton) {
-        Logger.info("\(TAG) called \(#function)")
+        Logger.info("")
 
         markSettingsNagAsComplete()
 
@@ -927,7 +933,7 @@ class CallViewController: OWSViewController, CallObserver, CallServiceObserver, 
     }
 
     @objc func didPressDismissNag(sender: UIButton) {
-        Logger.info("\(TAG) called \(#function)")
+        Logger.info("")
 
         markSettingsNagAsComplete()
 
@@ -941,9 +947,9 @@ class CallViewController: OWSViewController, CallObserver, CallServiceObserver, 
     // settings to their default values to indicate that the user has reviewed
     // them.
     private func markSettingsNagAsComplete() {
-        Logger.info("\(TAG) called \(#function)")
+        Logger.info("")
 
-        let preferences = Environment.current().preferences!
+        let preferences = Environment.shared.preferences!
 
         preferences.setIsCallKitEnabled(preferences.isCallKitEnabled())
         preferences.setIsCallKitPrivacyEnabled(preferences.isCallKitPrivacyEnabled())
@@ -956,41 +962,42 @@ class CallViewController: OWSViewController, CallObserver, CallServiceObserver, 
     // MARK: - CallObserver
 
     internal func stateDidChange(call: SignalCall, state: CallState) {
-        SwiftAssertIsOnMainThread(#function)
-        Logger.info("\(self.TAG) new call status: \(state)")
+        AssertIsOnMainThread()
+        Logger.info("new call status: \(state)")
+
         self.updateCallUI(callState: state)
     }
 
     internal func hasLocalVideoDidChange(call: SignalCall, hasLocalVideo: Bool) {
-        SwiftAssertIsOnMainThread(#function)
+        AssertIsOnMainThread()
         self.updateCallUI(callState: call.state)
     }
 
     internal func muteDidChange(call: SignalCall, isMuted: Bool) {
-        SwiftAssertIsOnMainThread(#function)
+        AssertIsOnMainThread()
         self.updateCallUI(callState: call.state)
     }
 
     func holdDidChange(call: SignalCall, isOnHold: Bool) {
-        SwiftAssertIsOnMainThread(#function)
+        AssertIsOnMainThread()
         self.updateCallUI(callState: call.state)
     }
 
     internal func audioSourceDidChange(call: SignalCall, audioSource: AudioSource?) {
-        SwiftAssertIsOnMainThread(#function)
+        AssertIsOnMainThread()
         self.updateCallUI(callState: call.state)
     }
 
     // MARK: - CallAudioServiceDelegate
 
     func callAudioService(_ callAudioService: CallAudioService, didUpdateIsSpeakerphoneEnabled isSpeakerphoneEnabled: Bool) {
-        SwiftAssertIsOnMainThread(#function)
+        AssertIsOnMainThread()
 
         updateAudioSourceButtonIsSelected()
     }
 
     func callAudioServiceDidChangeAudioSession(_ callAudioService: CallAudioService) {
-        SwiftAssertIsOnMainThread(#function)
+        AssertIsOnMainThread()
 
         // Which sources are available depends on the state of your Session.
         // When the audio session is not yet in PlayAndRecord none are available
@@ -1008,12 +1015,12 @@ class CallViewController: OWSViewController, CallObserver, CallServiceObserver, 
 
     internal func updateLocalVideo(captureSession: AVCaptureSession?) {
 
-        SwiftAssertIsOnMainThread(#function)
+        AssertIsOnMainThread()
 
         localVideoView.captureSession = captureSession
         let isHidden = captureSession == nil
 
-        Logger.info("\(TAG) \(#function) isHidden: \(isHidden)")
+        Logger.info("isHidden: \(isHidden)")
         localVideoView.isHidden = isHidden
 
         updateLocalVideoLayout()
@@ -1030,7 +1037,7 @@ class CallViewController: OWSViewController, CallObserver, CallServiceObserver, 
     }
 
     internal func updateRemoteVideoTrack(remoteVideoTrack: RTCVideoTrack?) {
-        SwiftAssertIsOnMainThread(#function)
+        AssertIsOnMainThread()
         guard self.remoteVideoTrack != remoteVideoTrack else {
             return
         }
@@ -1064,13 +1071,13 @@ class CallViewController: OWSViewController, CallObserver, CallServiceObserver, 
         } else if !ignoreNag &&
             call.direction == .incoming &&
             UIDevice.current.supportsCallKit &&
-            (!Environment.current().preferences.isCallKitEnabled() ||
-                Environment.current().preferences.isCallKitPrivacyEnabled()) {
+            (!Environment.shared.preferences.isCallKitEnabled() ||
+                Environment.shared.preferences.isCallKitPrivacyEnabled()) {
 
             isShowingSettingsNag = true
 
             // Update the nag view's copy to reflect the settings state.
-            if Environment.current().preferences.isCallKitEnabled() {
+            if Environment.shared.preferences.isCallKitEnabled() {
                 settingsNagDescriptionLabel.text = NSLocalizedString("CALL_VIEW_SETTINGS_NAG_DESCRIPTION_PRIVACY",
                                                                      comment: "Reminder to the user of the benefits of disabling CallKit privacy.")
             } else {
@@ -1079,8 +1086,8 @@ class CallViewController: OWSViewController, CallObserver, CallServiceObserver, 
             }
             settingsNagDescriptionLabel.superview?.setNeedsLayout()
 
-            if Environment.current().preferences.isCallKitEnabledSet() ||
-                Environment.current().preferences.isCallKitPrivacySet() {
+            if Environment.shared.preferences.isCallKitEnabledSet() ||
+                Environment.shared.preferences.isCallKitPrivacySet() {
                 // User has already touched these preferences, only show
                 // the "fleeting" nag, not the "blocking" nag.
 
@@ -1120,9 +1127,46 @@ class CallViewController: OWSViewController, CallObserver, CallServiceObserver, 
     internal func didUpdateVideoTracks(call: SignalCall?,
                                        localCaptureSession: AVCaptureSession?,
                                        remoteVideoTrack: RTCVideoTrack?) {
-        SwiftAssertIsOnMainThread(#function)
+        AssertIsOnMainThread()
 
         updateLocalVideo(captureSession: localCaptureSession)
         updateRemoteVideoTrack(remoteVideoTrack: remoteVideoTrack)
+    }
+
+    // MARK: - Proximity Monitoring
+
+    func ensureProximityMonitoring() {
+        if #available(iOS 11, *) {
+            // BUG: Adding `self` as a Weak reference to the proximityMonitoringManager results in
+            // the CallViewController never being deallocated, which, besides being a memory leak
+            // can interfere with subsequent video capture - presumably because the old capture
+            // session is still retained via the callViewController.localVideoView.
+            //
+            // A code audit has not revealed a retain cycle.
+            //
+            // Using the XCode memory debugger shows that a strong reference is held by
+            // windowManager.callNavigationController->_childViewControllers.
+            // Even though, when inspecting via the debugger, the CallViewController is not shown as
+            // a childViewController.
+            //
+            //     (lldb) po [[[OWSWindowManager sharedManager] callNavigationController] childViewControllers]
+            //     <__NSSingleObjectArrayI 0x1c0418bd0>(
+            //       <OWSWindowRootViewController: 0x13de37550>
+            //     )
+            //
+            // Weirder still, when presenting another CallViewController, the old one remains unallocated
+            // and inspecting it in the memory debugger shows _no_ strong references to it (yet it
+            // is not deallocated). Some weak references do remain - from the proximityMonitoringManager
+            // and the callObserver, both of which use the Weak<T> struct, which could be related.
+            //
+            // In any case, we can apparently avoid this behavior by not adding self as a Weak lifetime
+            // and as of iOS11, the system automatically managages proximityMonitoring
+            // via CallKit and AudioSessions. Proximity monitoring will be enabled whenever a call
+            // is active, unless we switch to VideoChat audio mode (which is actually desirable
+            // behavior), so the proximityMonitoringManager is redundant for calls on iOS11+.
+        } else {
+            // before iOS11, manually enable proximityMonitoring while we're on a call.
+            self.proximityMonitoringManager.add(lifetime: self)
+        }
     }
 }

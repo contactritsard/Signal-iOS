@@ -45,7 +45,7 @@ NS_ASSUME_NONNULL_BEGIN
 {
     [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(socketStateDidChange)
-                                                 name:kNSNotification_SocketManagerStateDidChange
+                                                 name:kNSNotification_OWSWebSocketStateDidChange
                                                object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(reachabilityChanged)
@@ -99,7 +99,7 @@ NS_ASSUME_NONNULL_BEGIN
         [loggingSection
             addItem:[OWSTableItem actionItemWithText:NSLocalizedString(@"SETTINGS_ADVANCED_SUBMIT_DEBUGLOG", @"")
                                          actionBlock:^{
-                                             DDLogInfo(@"%@ Submitting debug logs", weakSelf.logTag);
+                                             OWSLogInfo(@"Submitting debug logs");
                                              [DDLog flushLog];
                                              [Pastelog submitLogs];
                                          }]];
@@ -128,12 +128,13 @@ NS_ASSUME_NONNULL_BEGIN
     OWSTableSection *censorshipSection = [OWSTableSection new];
     censorshipSection.headerTitle = NSLocalizedString(@"SETTINGS_ADVANCED_CENSORSHIP_CIRCUMVENTION_HEADER",
         @"Table header for the 'censorship circumvention' section.");
+    BOOL isAnySocketOpen = TSSocketManager.shared.highestSocketState == OWSWebSocketStateOpen;
     if (OWSSignalService.sharedInstance.hasCensoredPhoneNumber) {
         censorshipSection.footerTitle
             = NSLocalizedString(@"SETTINGS_ADVANCED_CENSORSHIP_CIRCUMVENTION_FOOTER_AUTO_ENABLED",
                 @"Table footer for the 'censorship circumvention' section shown when censorship circumvention has been "
                 @"auto-enabled based on local phone number.");
-    } else if ([TSSocketManager sharedManager].state == SocketManagerStateOpen) {
+    } else if (isAnySocketOpen) {
         censorshipSection.footerTitle
             = NSLocalizedString(@"SETTINGS_ADVANCED_CENSORSHIP_CIRCUMVENTION_FOOTER_WEBSOCKET_CONNECTED",
                 @"Table footer for the 'censorship circumvention' section shown when the app is connected to the "
@@ -162,8 +163,7 @@ NS_ASSUME_NONNULL_BEGIN
     //      internet connection.
     BOOL isManualCensorshipCircumventionOnEnabled
         = (OWSSignalService.sharedInstance.isCensorshipCircumventionManuallyActivated
-            || (!OWSSignalService.sharedInstance.hasCensoredPhoneNumber &&
-                   [TSSocketManager sharedManager].state != SocketManagerStateOpen
+            || (!OWSSignalService.sharedInstance.hasCensoredPhoneNumber && !isAnySocketOpen
                    && weakSelf.reachability.isReachable));
     BOOL isCensorshipCircumventionOn = NO;
     if (OWSSignalService.sharedInstance.hasCensoredPhoneNumber) {
@@ -182,7 +182,7 @@ NS_ASSUME_NONNULL_BEGIN
     if (OWSSignalService.sharedInstance.isCensorshipCircumventionManuallyActivated) {
         OWSCountryMetadata *manualCensorshipCircumventionCountry =
             [weakSelf ensureManualCensorshipCircumventionCountry];
-        OWSAssert(manualCensorshipCircumventionCountry);
+        OWSAssertDebug(manualCensorshipCircumventionCountry);
         NSString *text = [NSString
             stringWithFormat:NSLocalizedString(@"SETTINGS_ADVANCED_CENSORSHIP_CIRCUMVENTION_COUNTRY_FORMAT",
                                  @"Label for the 'manual censorship circumvention' country. Embeds {{the manual "
@@ -194,17 +194,6 @@ NS_ASSUME_NONNULL_BEGIN
                                                             }]];
     }
     [contents addSection:censorshipSection];
-
-#ifdef THEME_ENABLED
-    OWSTableSection *themeSection = [OWSTableSection new];
-    themeSection.headerTitle = NSLocalizedString(@"THEME_SECTION", nil);
-    [themeSection addItem:[OWSTableItem switchItemWithText:NSLocalizedString(@"SETTINGS_ADVANCED_DARK_THEME",
-                                                               @"Label for setting that enables dark theme.")
-                                                      isOn:[Theme isDarkThemeEnabled]
-                                                    target:weakSelf
-                                                  selector:@selector(didToggleThemeSwitch:)]];
-    [contents addSection:themeSection];
-#endif
 
     self.contents = contents;
 }
@@ -235,7 +224,7 @@ NS_ASSUME_NONNULL_BEGIN
     if (!countryMetadata) {
         countryCode = @"US";
         countryMetadata = [OWSCountryMetadata countryMetadataForCountryCode:countryCode];
-        OWSAssert(countryMetadata);
+        OWSAssertDebug(countryMetadata);
     }
 
     if (countryMetadata) {
@@ -250,8 +239,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)syncPushTokens
 {
-    OWSSyncPushTokensJob *job = [[OWSSyncPushTokensJob alloc] initWithAccountManager:SignalApp.sharedApp.accountManager
-                                                                         preferences:[Environment preferences]];
+    OWSSyncPushTokensJob *job =
+        [[OWSSyncPushTokensJob alloc] initWithAccountManager:AppEnvironment.shared.accountManager
+                                                 preferences:Environment.shared.preferences];
     job.uploadOnlyIfStale = NO;
     [job run]
         .then(^{
@@ -267,10 +257,12 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)didToggleEnableLogSwitch:(UISwitch *)sender
 {
     if (!sender.isOn) {
+        OWSLogInfo(@"disabling logging.");
         [[DebugLogger sharedLogger] wipeLogs];
         [[DebugLogger sharedLogger] disableFileLogging];
     } else {
         [[DebugLogger sharedLogger] enableFileLogging];
+        OWSLogInfo(@"enabling logging.");
     }
 
     [OWSPreferences setIsLoggingEnabled:sender.isOn];
@@ -284,17 +276,6 @@ NS_ASSUME_NONNULL_BEGIN
 
     [self updateTableContents];
 }
-
-#ifdef THEME_ENABLED
-- (void)didToggleThemeSwitch:(UISwitch *)sender
-{
-    [Theme setIsDarkThemeEnabled:sender.isOn];
-
-    [self updateTableContents];
-
-    // TODO: Notify and refresh.
-}
-#endif
 
 @end
 

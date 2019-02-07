@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 #import "OWSReadTracking.h"
@@ -7,7 +7,7 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-@class SSKEnvelope;
+@class SSKProtoEnvelope;
 
 typedef NS_ENUM(int32_t, TSErrorMessageType) {
     TSErrorMessageNoSession,
@@ -35,7 +35,8 @@ typedef NS_ENUM(int32_t, TSErrorMessageType) {
                         expiresInSeconds:(uint32_t)expiresInSeconds
                          expireStartedAt:(uint64_t)expireStartedAt
                            quotedMessage:(nullable TSQuotedMessage *)quotedMessage
-                            contactShare:(nullable OWSContact *)contact NS_UNAVAILABLE;
+                            contactShare:(nullable OWSContact *)contact
+                             linkPreview:(nullable OWSLinkPreview *)linkPreview NS_UNAVAILABLE;
 
 - (instancetype)initWithTimestamp:(uint64_t)timestamp
                          inThread:(nullable TSThread *)thread
@@ -51,22 +52,18 @@ typedef NS_ENUM(int32_t, TSErrorMessageType) {
                 failedMessageType:(TSErrorMessageType)errorMessageType
                       recipientId:(nullable NSString *)recipientId NS_DESIGNATED_INITIALIZER;
 
-- (instancetype)initWithTimestamp:(uint64_t)timestamp
-                         inThread:(nullable TSThread *)thread
-                failedMessageType:(TSErrorMessageType)errorMessageType;
-
-+ (instancetype)corruptedMessageWithEnvelope:(SSKEnvelope *)envelope
++ (instancetype)corruptedMessageWithEnvelope:(SSKProtoEnvelope *)envelope
                              withTransaction:(YapDatabaseReadWriteTransaction *)transaction;
 
 + (instancetype)corruptedMessageInUnknownThread;
 
-+ (instancetype)invalidVersionWithEnvelope:(SSKEnvelope *)envelope
++ (instancetype)invalidVersionWithEnvelope:(SSKProtoEnvelope *)envelope
                            withTransaction:(YapDatabaseReadWriteTransaction *)transaction;
 
-+ (instancetype)invalidKeyExceptionWithEnvelope:(SSKEnvelope *)envelope
++ (instancetype)invalidKeyExceptionWithEnvelope:(SSKProtoEnvelope *)envelope
                                 withTransaction:(YapDatabaseReadWriteTransaction *)transaction;
 
-+ (instancetype)missingSessionWithEnvelope:(SSKEnvelope *)envelope
++ (instancetype)missingSessionWithEnvelope:(SSKProtoEnvelope *)envelope
                            withTransaction:(YapDatabaseReadWriteTransaction *)transaction;
 
 + (instancetype)nonblockingIdentityChangeInThread:(TSThread *)thread recipientId:(NSString *)recipientId;

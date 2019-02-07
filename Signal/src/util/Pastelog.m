@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 #import "Pastelog.h"
@@ -8,6 +8,7 @@
 #import "zlib.h"
 #import <AFNetworking/AFNetworking.h>
 #import <SSZipArchive/SSZipArchive.h>
+#import <SignalCoreKit/Threading.h>
 #import <SignalMessaging/AttachmentSharing.h>
 #import <SignalMessaging/DebugLogger.h>
 #import <SignalMessaging/Environment.h>
@@ -16,7 +17,7 @@
 #import <SignalServiceKit/OWSPrimaryStorage.h>
 #import <SignalServiceKit/TSAccountManager.h>
 #import <SignalServiceKit/TSContactThread.h>
-#import <SignalServiceKit/Threading.h>
+#import <sys/sysctl.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -45,7 +46,7 @@ typedef void (^DebugLogUploadFailure)(DebugLogUploader *uploader, NSError *error
 
 - (void)dealloc
 {
-    DDLogVerbose(@"Dealloc: %@", self.logTag);
+    OWSLogVerbose(@"");
 }
 
 - (void)uploadFileWithURL:(NSURL *)fileUrl
@@ -53,10 +54,10 @@ typedef void (^DebugLogUploadFailure)(DebugLogUploader *uploader, NSError *error
                   success:(DebugLogUploadSuccess)success
                   failure:(DebugLogUploadFailure)failure
 {
-    OWSAssert(fileUrl);
-    OWSAssert(mimeType.length > 0);
-    OWSAssert(success);
-    OWSAssert(failure);
+    OWSAssertDebug(fileUrl);
+    OWSAssertDebug(mimeType.length > 0);
+    OWSAssertDebug(success);
+    OWSAssertDebug(failure);
 
     self.fileUrl = fileUrl;
     self.mimeType = mimeType;
@@ -86,21 +87,21 @@ typedef void (^DebugLogUploadFailure)(DebugLogUploader *uploader, NSError *error
             }
 
             if (![responseObject isKindOfClass:[NSDictionary class]]) {
-                DDLogError(@"%@ Invalid response: %@, %@", strongSelf.logTag, urlString, responseObject);
+                OWSLogError(@"Invalid response: %@, %@", urlString, responseObject);
                 [strongSelf
                     failWithError:OWSErrorWithCodeDescription(OWSErrorCodeDebugLogUploadFailed, @"Invalid response")];
                 return;
             }
             NSString *uploadUrl = responseObject[@"url"];
             if (![uploadUrl isKindOfClass:[NSString class]] || uploadUrl.length < 1) {
-                DDLogError(@"%@ Invalid response: %@, %@", strongSelf.logTag, urlString, responseObject);
+                OWSLogError(@"Invalid response: %@, %@", urlString, responseObject);
                 [strongSelf
                     failWithError:OWSErrorWithCodeDescription(OWSErrorCodeDebugLogUploadFailed, @"Invalid response")];
                 return;
             }
             NSDictionary *fields = responseObject[@"fields"];
             if (![fields isKindOfClass:[NSDictionary class]] || fields.count < 1) {
-                DDLogError(@"%@ Invalid response: %@, %@", strongSelf.logTag, urlString, responseObject);
+                OWSLogError(@"Invalid response: %@, %@", urlString, responseObject);
                 [strongSelf
                     failWithError:OWSErrorWithCodeDescription(OWSErrorCodeDebugLogUploadFailed, @"Invalid response")];
                 return;
@@ -109,7 +110,7 @@ typedef void (^DebugLogUploadFailure)(DebugLogUploader *uploader, NSError *error
                 NSString *fieldValue = fields[fieldName];
                 if (![fieldName isKindOfClass:[NSString class]] || fieldName.length < 1
                     || ![fieldValue isKindOfClass:[NSString class]] || fieldValue.length < 1) {
-                    DDLogError(@"%@ Invalid response: %@, %@", strongSelf.logTag, urlString, responseObject);
+                    OWSLogError(@"Invalid response: %@, %@", urlString, responseObject);
                     [strongSelf failWithError:OWSErrorWithCodeDescription(
                                                   OWSErrorCodeDebugLogUploadFailed, @"Invalid response")];
                     return;
@@ -117,7 +118,7 @@ typedef void (^DebugLogUploadFailure)(DebugLogUploader *uploader, NSError *error
             }
             NSString *_Nullable uploadKey = fields[@"key"];
             if (![uploadKey isKindOfClass:[NSString class]] || uploadKey.length < 1) {
-                DDLogError(@"%@ Invalid response: %@, %@", strongSelf.logTag, urlString, responseObject);
+                OWSLogError(@"Invalid response: %@, %@", urlString, responseObject);
                 [strongSelf
                     failWithError:OWSErrorWithCodeDescription(OWSErrorCodeDebugLogUploadFailed, @"Invalid response")];
                 return;
@@ -126,7 +127,7 @@ typedef void (^DebugLogUploadFailure)(DebugLogUploader *uploader, NSError *error
             // Add a file extension to the upload's key.
             NSString *fileExtension = strongSelf.fileUrl.lastPathComponent.pathExtension;
             if (fileExtension.length < 1) {
-                DDLogError(@"%@ Invalid file url: %@, %@", strongSelf.logTag, urlString, responseObject);
+                OWSLogError(@"Invalid file url: %@, %@", urlString, responseObject);
                 [strongSelf
                     failWithError:OWSErrorWithCodeDescription(OWSErrorCodeDebugLogUploadFailed, @"Invalid file url")];
                 return;
@@ -138,16 +139,16 @@ typedef void (^DebugLogUploadFailure)(DebugLogUploader *uploader, NSError *error
             [strongSelf uploadFileWithUploadUrl:uploadUrl fields:updatedFields uploadKey:uploadKey];
         }
         failure:^(NSURLSessionDataTask *_Nullable task, NSError *error) {
-            DDLogError(@"%@ failed: %@", weakSelf.logTag, urlString);
+            OWSLogError(@"failed: %@", urlString);
             [weakSelf failWithError:error];
         }];
 }
 
 - (void)uploadFileWithUploadUrl:(NSString *)uploadUrl fields:(NSDictionary *)fields uploadKey:(NSString *)uploadKey
 {
-    OWSAssert(uploadUrl.length > 0);
-    OWSAssert(fields);
-    OWSAssert(uploadKey.length > 0);
+    OWSAssertDebug(uploadUrl.length > 0);
+    OWSAssertDebug(fields);
+    OWSAssertDebug(uploadKey.length > 0);
 
     __weak DebugLogUploader *weakSelf = self;
     NSURLSessionConfiguration *sessionConf = NSURLSessionConfiguration.ephemeralSessionConfiguration;
@@ -172,18 +173,18 @@ typedef void (^DebugLogUploadFailure)(DebugLogUploader *uploader, NSError *error
                                                   mimeType:weakSelf.mimeType
                                                      error:&error];
             if (!success || error) {
-                DDLogError(@"%@ failed: %@, error: %@", weakSelf.logTag, uploadUrl, error);
+                OWSLogError(@"failed: %@, error: %@", uploadUrl, error);
             }
         }
         progress:nil
         success:^(NSURLSessionDataTask *task, id _Nullable responseObject) {
-            DDLogVerbose(@"%@ Response: %@, %@", weakSelf.logTag, uploadUrl, responseObject);
+            OWSLogVerbose(@"Response: %@, %@", uploadUrl, responseObject);
 
             NSString *urlString = [NSString stringWithFormat:@"https://debuglogs.org/%@", uploadKey];
             [self succeedWithUrl:[NSURL URLWithString:urlString]];
         }
         failure:^(NSURLSessionDataTask *_Nullable task, NSError *error) {
-            DDLogError(@"%@ upload: %@ failed with error: %@", weakSelf.logTag, uploadUrl, error);
+            OWSLogError(@"upload: %@ failed with error: %@", uploadUrl, error);
             [weakSelf failWithError:error];
         }];
 }
@@ -196,8 +197,8 @@ typedef void (^DebugLogUploadFailure)(DebugLogUploader *uploader, NSError *error
     // We'll accept any 2xx status code.
     NSInteger statusCodeClass = statusCode - (statusCode % 100);
     if (statusCodeClass != 200) {
-        DDLogError(@"%@ statusCode: %zd, %zd", self.logTag, statusCode, statusCodeClass);
-        DDLogError(@"%@ headers: %@", self.logTag, httpResponse.allHeaderFields);
+        OWSLogError(@"statusCode: %zd, %zd", statusCode, statusCodeClass);
+        OWSLogError(@"headers: %@", httpResponse.allHeaderFields);
         [self failWithError:[NSError errorWithDomain:@"PastelogKit"
                                                 code:10001
                                             userInfo:@{ NSLocalizedDescriptionKey : @"Invalid response code." }]];
@@ -206,16 +207,16 @@ typedef void (^DebugLogUploadFailure)(DebugLogUploader *uploader, NSError *error
 
 - (void)connection:(NSURLConnection *)connection didFailWithError:(NSError *)error
 {
-    DDLogVerbose(@"%@ %s", self.logTag, __PRETTY_FUNCTION__);
+    OWSLogVerbose(@"");
 
     [self failWithError:error];
 }
 
 - (void)failWithError:(NSError *)error
 {
-    OWSAssert(error);
+    OWSAssertDebug(error);
 
-    DDLogError(@"%@ %s %@", self.logTag, __PRETTY_FUNCTION__, error);
+    OWSLogError(@"%@", error);
 
     DispatchMainThreadSafe(^{
         // Call the completions exactly once.
@@ -229,9 +230,9 @@ typedef void (^DebugLogUploadFailure)(DebugLogUploader *uploader, NSError *error
 
 - (void)succeedWithUrl:(NSURL *)url
 {
-    OWSAssert(url);
+    OWSAssertDebug(url);
 
-    DDLogVerbose(@"%@ %s %@", self.logTag, __PRETTY_FUNCTION__, url);
+    OWSLogVerbose(@"%@", url);
 
     DispatchMainThreadSafe(^{
         // Call the completions exactly once.
@@ -282,6 +283,22 @@ typedef void (^DebugLogUploadFailure)(DebugLogUploader *uploader, NSError *error
     return self;
 }
 
+#pragma mark - Dependencies
+
+- (YapDatabaseConnection *)dbConnection
+{
+    return SSKEnvironment.shared.primaryStorage.dbReadWriteConnection;
+}
+
+- (TSAccountManager *)tsAccountManager
+{
+    OWSAssertDebug(SSKEnvironment.shared.tsAccountManager);
+    
+    return SSKEnvironment.shared.tsAccountManager;
+}
+
+#pragma mark -
+
 + (void)submitLogs
 {
     [self submitLogsWithCompletion:nil];
@@ -297,7 +314,7 @@ typedef void (^DebugLogUploadFailure)(DebugLogUploader *uploader, NSError *error
         }
     };
 
-    [self uploadLogsWithSuccess:^(NSURL *url) {
+    [[self sharedManager] uploadLogsWithUIWithSuccess:^(NSURL *url) {
         UIAlertController *alert = [UIAlertController
             alertControllerWithTitle:NSLocalizedString(@"DEBUG_LOG_ALERT_TITLE", @"Title of the debug log alert.")
                              message:NSLocalizedString(@"DEBUG_LOG_ALERT_MESSAGE", @"Message of the debug log alert.")
@@ -357,28 +374,52 @@ typedef void (^DebugLogUploadFailure)(DebugLogUploader *uploader, NSError *error
     }];
 }
 
-+ (void)uploadLogsWithSuccess:(nullable UploadDebugLogsSuccess)success
-{
-    OWSAssert(success);
+- (void)uploadLogsWithUIWithSuccess:(UploadDebugLogsSuccess)successParam {
+    OWSAssertIsOnMainThread();
 
-    [[self sharedManager] uploadLogsWithSuccess:success
-                                        failure:^(NSString *localizedErrorMessage) {
-                                            [Pastelog showFailureAlertWithMessage:localizedErrorMessage];
-                                        }];
+    [ModalActivityIndicatorViewController
+        presentFromViewController:UIApplication.sharedApplication.frontmostViewControllerIgnoringAlerts
+                        canCancel:YES
+                  backgroundBlock:^(ModalActivityIndicatorViewController *modalActivityIndicator) {
+                      [self
+                          uploadLogsWithSuccess:^(NSURL *url) {
+                              OWSAssertIsOnMainThread();
+
+                              if (modalActivityIndicator.wasCancelled) {
+                                  return;
+                              }
+
+                              [modalActivityIndicator dismissWithCompletion:^{
+                                  OWSAssertIsOnMainThread();
+
+                                  successParam(url);
+                              }];
+                          }
+                          failure:^(NSString *localizedErrorMessage) {
+                              OWSAssertIsOnMainThread();
+
+                              if (modalActivityIndicator.wasCancelled) {
+                                  return;
+                              }
+
+                              [modalActivityIndicator dismissWithCompletion:^{
+                                  OWSAssertIsOnMainThread();
+
+                                  [Pastelog showFailureAlertWithMessage:localizedErrorMessage];
+                              }];
+                          }];
+                  }];
 }
 
-- (void)uploadLogsWithSuccess:(nullable UploadDebugLogsSuccess)successParam failure:(UploadDebugLogsFailure)failureParam
-{
-    OWSAssert(successParam);
-    OWSAssert(failureParam);
+- (void)uploadLogsWithSuccess:(UploadDebugLogsSuccess)successParam failure:(UploadDebugLogsFailure)failureParam {
+    OWSAssertDebug(successParam);
+    OWSAssertDebug(failureParam);
 
     // Ensure that we call the completions on the main thread.
     UploadDebugLogsSuccess success = ^(NSURL *url) {
-        if (successParam) {
-            DispatchMainThreadSafe(^{
-                successParam(url);
-            });
-        }
+        DispatchMainThreadSafe(^{
+            successParam(url);
+        });
     };
     UploadDebugLogsFailure failure = ^(NSString *localizedErrorMessage) {
         DispatchMainThreadSafe(^{
@@ -392,7 +433,7 @@ typedef void (^DebugLogUploadFailure)(DebugLogUploader *uploader, NSError *error
     [dateFormatter setDateFormat:@"yyyy.MM.dd hh.mm.ss"];
     NSString *dateString = [dateFormatter stringFromDate:[NSDate new]];
     NSString *logsName = [[dateString stringByAppendingString:@" "] stringByAppendingString:NSUUID.UUID.UUIDString];
-    NSString *tempDirectory = NSTemporaryDirectory();
+    NSString *tempDirectory = OWSTemporaryDirectory();
     NSString *zipFilePath =
         [tempDirectory stringByAppendingPathComponent:[logsName stringByAppendingPathExtension:@"zip"]];
     NSString *zipDirPath = [tempDirectory stringByAppendingPathComponent:logsName];
@@ -478,18 +519,38 @@ typedef void (^DebugLogUploadFailure)(DebugLogUploader *uploader, NSError *error
 {
     NSString *emailAddress = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"LOGS_EMAIL"];
 
-    NSString *body = [NSString stringWithFormat:@"Log URL: %@ \n Tell us about the issue: ", url];
+    NSMutableString *body = [NSMutableString new];
+
+    [body appendFormat:@"Tell us about the issue: \n\n\n"];
+
+    size_t size;
+    sysctlbyname("hw.machine", NULL, &size, NULL, 0);
+    char *machine = malloc(size);
+    sysctlbyname("hw.machine", machine, &size, NULL, 0);
+    NSString *platform = [NSString stringWithUTF8String:machine];
+    free(machine);
+
+    [body appendFormat:@"Device: %@ (%@)\n", UIDevice.currentDevice.model, platform];
+    [body appendFormat:@"iOS Version: %@ \n", [UIDevice currentDevice].systemVersion];
+    [body appendFormat:@"Signal Version: %@ \n", [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleVersion"]];
+    [body appendFormat:@"Log URL: %@ \n", url];
+
     NSString *escapedBody =
         [body stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLQueryAllowedCharacterSet];
     NSString *urlString =
         [NSString stringWithFormat:@"mailto:%@?subject=iOS%%20Debug%%20Log&body=%@", emailAddress, escapedBody];
 
-    [UIApplication.sharedApplication openURL:[NSURL URLWithString:urlString]];
+    BOOL success = [UIApplication.sharedApplication openURL:[NSURL URLWithString:urlString]];
+    if (!success) {
+        OWSLogError(@"Could not open Email app.");
+        [OWSAlerts showErrorAlertWithMessage:NSLocalizedString(@"DEBUG_LOG_COULD_NOT_EMAIL",
+                                                 @"Error indicating that the app could not launch the Email app.")];
+    }
 }
 
 - (void)prepareRedirection:(NSURL *)url completion:(SubmitDebugLogsCompletion)completion
 {
-    OWSAssert(completion);
+    OWSAssertDebug(completion);
 
     UIPasteboard *pb = [UIPasteboard generalPasteboard];
     [pb setString:url.absoluteString];
@@ -516,21 +577,23 @@ typedef void (^DebugLogUploadFailure)(DebugLogUploader *uploader, NSError *error
 
 - (void)sendToSelf:(NSURL *)url
 {
-    if (![TSAccountManager isRegistered]) {
+    if (![self.tsAccountManager isRegistered]) {
         return;
     }
     NSString *recipientId = [TSAccountManager localNumber];
-    OWSMessageSender *messageSender = Environment.current.messageSender;
 
     DispatchMainThreadSafe(^{
         __block TSThread *thread = nil;
         [OWSPrimaryStorage.dbReadWriteConnection readWriteWithBlock:^(YapDatabaseReadWriteTransaction *transaction) {
             thread = [TSContactThread getOrCreateThreadWithContactId:recipientId transaction:transaction];
         }];
-        [ThreadUtil sendMessageWithText:url.absoluteString
-                               inThread:thread
-                       quotedReplyModel:nil
-                          messageSender:messageSender];
+        [self.dbConnection readWriteWithBlock:^(YapDatabaseReadWriteTransaction *_Nonnull transaction) {
+            [ThreadUtil enqueueMessageWithText:url.absoluteString
+                                      inThread:thread
+                              quotedReplyModel:nil
+                              linkPreviewDraft:nil
+                                   transaction:transaction];
+        }];
     });
 
     // Also copy to pasteboard.
@@ -539,7 +602,7 @@ typedef void (^DebugLogUploadFailure)(DebugLogUploader *uploader, NSError *error
 
 - (void)sendToMostRecentThread:(NSURL *)url
 {
-    if (![TSAccountManager isRegistered]) {
+    if (![self.tsAccountManager isRegistered]) {
         return;
     }
 
@@ -549,11 +612,13 @@ typedef void (^DebugLogUploadFailure)(DebugLogUploader *uploader, NSError *error
     }];
     DispatchMainThreadSafe(^{
         if (thread) {
-            OWSMessageSender *messageSender = Environment.current.messageSender;
-            [ThreadUtil sendMessageWithText:url.absoluteString
-                                   inThread:thread
-                           quotedReplyModel:nil
-                              messageSender:messageSender];
+            [self.dbConnection readWriteWithBlock:^(YapDatabaseReadWriteTransaction *_Nonnull transaction) {
+                [ThreadUtil enqueueMessageWithText:url.absoluteString
+                                          inThread:thread
+                                  quotedReplyModel:nil
+                                  linkPreviewDraft:nil
+                                       transaction:transaction];
+            }];
         } else {
             [Pastelog showFailureAlertWithMessage:@"Could not find last thread."];
         }

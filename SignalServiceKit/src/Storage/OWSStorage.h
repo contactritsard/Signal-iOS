@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 #import <YapDatabase/YapDatabase.h>
@@ -58,11 +58,18 @@ typedef void (^OWSStorageMigrationBlock)(void);
 // This object can be used to filter database notifications.
 @property (nonatomic, readonly, nullable) id dbNotificationObject;
 
+// migrationBlock will be invoked _off_ the main thread.
 + (void)registerExtensionsWithMigrationBlock:(OWSStorageMigrationBlock)migrationBlock;
+
+#ifdef DEBUG
+- (void)closeStorageForTests;
+#endif
 
 + (void)resetAllStorage;
 
 - (YapDatabaseConnection *)newDatabaseConnection;
+
++ (YapDatabaseOptions *)defaultDatabaseOptions;
 
 #pragma mark - Extension Registration
 

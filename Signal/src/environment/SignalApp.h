@@ -22,35 +22,38 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, nullable, weak) HomeViewController *homeViewController;
 @property (nonatomic, nullable, weak) OWSNavigationController *signUpFlowNavigationController;
 
-// TODO: Convert to singletons?
-@property (nonatomic, readonly) OWSWebRTCCallMessageHandler *callMessageHandler;
-@property (nonatomic, readonly) CallService *callService;
-@property (nonatomic, readonly) CallUIAdapter *callUIAdapter;
-@property (nonatomic, readonly) OutboundCallInitiator *outboundCallInitiator;
-@property (nonatomic, readonly) OWSMessageFetcherJob *messageFetcherJob;
-@property (nonatomic, readonly) NotificationsManager *notificationsManager;
-@property (nonatomic, readonly) AccountManager *accountManager;
-
 - (instancetype)init NS_UNAVAILABLE;
 
 + (instancetype)sharedApp;
 
-#pragma mark - View Convenience Methods
+- (void)setup;
 
-- (void)presentConversationForRecipientId:(NSString *)recipientId;
-- (void)presentConversationForRecipientId:(NSString *)recipientId action:(ConversationViewAction)action;
-- (void)presentConversationForThreadId:(NSString *)threadId;
-- (void)presentConversationForThread:(TSThread *)thread;
-- (void)presentConversationForThread:(TSThread *)thread action:(ConversationViewAction)action;
+#pragma mark - Conversation Presentation
+
+- (void)presentConversationForRecipientId:(NSString *)recipientId animated:(BOOL)isAnimated;
+
+- (void)presentConversationForRecipientId:(NSString *)recipientId
+                                   action:(ConversationViewAction)action
+                                 animated:(BOOL)isAnimated;
+
+- (void)presentConversationForThreadId:(NSString *)threadId animated:(BOOL)isAnimated;
+
+- (void)presentConversationForThread:(TSThread *)thread animated:(BOOL)isAnimated;
+
+- (void)presentConversationForThread:(TSThread *)thread action:(ConversationViewAction)action animated:(BOOL)isAnimated;
+
 - (void)presentConversationForThread:(TSThread *)thread
                               action:(ConversationViewAction)action
-                      focusMessageId:(nullable NSString *)focusMessageId;
+                      focusMessageId:(nullable NSString *)focusMessageId
+                            animated:(BOOL)isAnimated;
 
 #pragma mark - Methods
 
 + (void)resetAppData;
 
 + (void)clearAllNotifications;
+
+- (void)showHomeView;
 
 @end
 

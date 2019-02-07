@@ -43,7 +43,8 @@ NSString *const kSyncMessageFileExtension = @"bin";
             @"video/3gpp2" : @"3g2",
             @"video/mp4" : @"mp4",
             @"video/quicktime" : @"mov",
-            @"video/x-m4v" : @"m4v"
+            @"video/x-m4v" : @"m4v",
+            @"video/mpeg" : @"mpg",
         };
     });
     return result;
@@ -70,7 +71,7 @@ NSString *const kSyncMessageFileExtension = @"bin";
             @"audio/aiff" : @"aiff",
             @"audio/x-aiff" : @"aiff",
             @"audio/3gpp2" : @"3g2",
-            @"audio/3gpp" : @"3gp"
+            @"audio/3gpp" : @"3gp",
         };
     });
     return result;
@@ -87,7 +88,7 @@ NSString *const kSyncMessageFileExtension = @"bin";
             @"image/tiff" : @"tif",
             @"image/x-tiff" : @"tif",
             @"image/bmp" : @"bmp",
-            @"image/x-windows-bmp" : @"bmp"
+            @"image/x-windows-bmp" : @"bmp",
         };
     });
     return result;
@@ -128,7 +129,9 @@ NSString *const kSyncMessageFileExtension = @"bin";
             @"mp4" : @"video/mp4",
             @"mov" : @"video/quicktime",
             @"mqv" : @"video/quicktime",
-            @"m4v" : @"video/x-m4v"
+            @"m4v" : @"video/x-m4v",
+            @"mpg" : @"video/mpeg",
+            @"mpeg" : @"video/mpeg",
         };
     });
     return result;
@@ -150,8 +153,6 @@ NSString *const kSyncMessageFileExtension = @"bin";
             @"mp3" : @"audio/mp3",
             @"swa" : @"audio/mp3",
             @"mp4" : @"audio/mp4",
-            @"mpeg" : @"audio/mpeg",
-            @"mpg" : @"audio/mpeg",
             @"wav" : @"audio/wav",
             @"bwf" : @"audio/wav",
             @"m4a" : @"audio/x-m4a",
@@ -279,6 +280,23 @@ NSString *const kSyncMessageFileExtension = @"bin";
     return [MIMETypeUtil isSupportedAudioMIMEType:contentType];
 }
 
++ (BOOL)isVisualMedia:(NSString *)contentType
+{
+    if ([self isImage:contentType]) {
+        return YES;
+    }
+
+    if ([self isVideo:contentType]) {
+        return YES;
+    }
+
+    if ([self isAnimated:contentType]) {
+        return YES;
+    }
+
+    return NO;
+}
+
 + (nullable NSString *)filePathForAttachment:(NSString *)uniqueId
                                   ofMIMEType:(NSString *)contentType
                               sourceFilename:(nullable NSString *)sourceFilename
@@ -362,7 +380,7 @@ NSString *const kSyncMessageFileExtension = @"bin";
         return [self filePathForData:uniqueId withFileExtension:fileExtension inFolder:folder];
     }
 
-    DDLogError(@"Got asked for path of file %@ which is unsupported", contentType);
+    OWSLogError(@"Got asked for path of file %@ which is unsupported", contentType);
     // Use a fallback file extension.
     return [self filePathForData:uniqueId withFileExtension:kDefaultFileExtension inFolder:folder];
 }
@@ -456,7 +474,7 @@ NSString *const kSyncMessageFileExtension = @"bin";
     for (NSString *mimeType in mimeTypes) {
         NSString *_Nullable utiType = [self utiTypeForMIMEType:mimeType];
         if (!utiType) {
-            OWSFail(@"%@ unknown utiType for mimetype: %@", self.logTag, mimeType);
+            OWSFailDebug(@"unknown utiType for mimetype: %@", mimeType);
             continue;
         }
         [result addObject:utiType];
@@ -1573,7 +1591,7 @@ NSString *const kSyncMessageFileExtension = @"bin";
 
 + (nullable NSString *)mimeTypeForFileExtension:(NSString *)fileExtension
 {
-    OWSAssert(fileExtension.length > 0);
+    OWSAssertDebug(fileExtension.length > 0);
 
     return [self genericExtensionTypesToMIMETypes][fileExtension];
 }
@@ -2594,7 +2612,7 @@ NSString *const kSyncMessageFileExtension = @"bin";
 
 + (nullable NSString *)utiTypeForFileExtension:(NSString *)fileExtension
 {
-    OWSAssert(fileExtension.length > 0);
+    OWSAssertDebug(fileExtension.length > 0);
 
     NSString *_Nullable utiType = (__bridge_transfer NSString *)UTTypeCreatePreferredIdentifierForTag(
         kUTTagClassFilenameExtension, (__bridge CFStringRef)fileExtension, NULL);

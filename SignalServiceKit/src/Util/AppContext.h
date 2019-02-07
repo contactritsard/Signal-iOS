@@ -16,10 +16,13 @@ extern NSString *const OWSApplicationWillResignActiveNotification;
 extern NSString *const OWSApplicationDidBecomeActiveNotification;
 
 typedef void (^BackgroundTaskExpirationHandler)(void);
+typedef void (^AppActiveBlock)(void);
 
 NSString *NSStringForUIApplicationState(UIApplicationState value);
 
 @class OWSAES256Key;
+
+@protocol SSKKeychainStorage;
 
 @protocol AppContext <NSObject>
 
@@ -84,12 +87,20 @@ NSString *NSStringForUIApplicationState(UIApplicationState value);
 // Returns nil if isMainApp is NO
 @property (nullable, nonatomic, readonly) UIAlertAction *openSystemSettingsAction;
 
-// Should only be called if isMainApp is YES,
-// but should only be necessary to call if isMainApp is YES.
-- (void)doMultiDeviceUpdateWithProfileKey:(OWSAES256Key *)profileKey;
-
 // Should be a NOOP if isMainApp is NO.
 - (void)setNetworkActivityIndicatorVisible:(BOOL)value;
+
+- (void)runNowOrWhenMainAppIsActive:(AppActiveBlock)block;
+
+@property (atomic, readonly) NSDate *appLaunchTime;
+
+- (id<SSKKeychainStorage>)keychainStorage;
+
+- (NSString *)appDocumentDirectoryPath;
+
+- (NSString *)appSharedDataDirectoryPath;
+
+- (NSUserDefaults *)appUserDefaults;
 
 @end
 
@@ -97,5 +108,9 @@ id<AppContext> CurrentAppContext(void);
 void SetCurrentAppContext(id<AppContext> appContext);
 
 void ExitShareExtension(void);
+
+#ifdef DEBUG
+void ClearCurrentAppContextForTests(void);
+#endif
 
 NS_ASSUME_NONNULL_END

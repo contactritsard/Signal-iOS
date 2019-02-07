@@ -1,11 +1,10 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 #import "TSMessage.h"
 #import "AppContext.h"
 #import "MIMETypeUtil.h"
-#import "NSDate+OWS.h"
 #import "NSString+SSK.h"
 #import "OWSContact.h"
 #import "OWSDisappearingMessagesConfiguration.h"
@@ -13,6 +12,8 @@
 #import "TSAttachmentStream.h"
 #import "TSQuotedMessage.h"
 #import "TSThread.h"
+#import <SignalCoreKit/NSDate+OWS.h>
+#import <SignalServiceKit/SignalServiceKit-Swift.h>
 #import <YapDatabase/YapDatabase.h>
 #import <YapDatabase/YapDatabaseTransaction.h>
 
@@ -47,12 +48,7 @@ static const NSUInteger OWSMessageSchemaVersion = 4;
  */
 @property (nonatomic, readonly) NSUInteger schemaVersion;
 
-// The timestamp property is populated by the envelope,
-// which is created by the sender.
-//
-// We typically want to order messages locally by when
-// they were received & decrypted, not by when they were sent.
-@property (nonatomic) uint64_t receivedAtTimestamp;
+@property (nonatomic, nullable) OWSLinkPreview *linkPreview;
 
 @end
 
@@ -68,6 +64,7 @@ static const NSUInteger OWSMessageSchemaVersion = 4;
                          expireStartedAt:(uint64_t)expireStartedAt
                            quotedMessage:(nullable TSQuotedMessage *)quotedMessage
                             contactShare:(nullable OWSContact *)contactShare
+                             linkPreview:(nullable OWSLinkPreview *)linkPreview
 {
     self = [super initInteractionWithTimestamp:timestamp inThread:thread];
 
@@ -82,9 +79,9 @@ static const NSUInteger OWSMessageSchemaVersion = 4;
     _expiresInSeconds = expiresInSeconds;
     _expireStartedAt = expireStartedAt;
     [self updateExpiresAt];
-    _receivedAtTimestamp = [NSDate ows_millisecondTimeStamp];
     _quotedMessage = quotedMessage;
     _contactShare = contactShare;
+    _linkPreview = linkPreview;
 
     return self;
 }
@@ -135,18 +132,6 @@ static const NSUInteger OWSMessageSchemaVersion = 4;
         _attachmentIds = [NSMutableArray new];
     }
 
-    if (_receivedAtTimestamp == 0) {
-        // Upgrade from the older "receivedAtDate" and "receivedAt" properties if
-        // necessary.
-        NSDate *receivedAtDate = [coder decodeObjectForKey:@"receivedAtDate"];
-        if (!receivedAtDate) {
-            receivedAtDate = [coder decodeObjectForKey:@"receivedAt"];
-        }
-        if (receivedAtDate) {
-            _receivedAtTimestamp = [NSDate ows_millisecondsSince1970ForDate:receivedAtDate];
-        }
-    }
-
     _schemaVersion = OWSMessageSchemaVersion;
 
     return self;
@@ -156,10 +141,7 @@ static const NSUInteger OWSMessageSchemaVersion = 4;
 {
     uint32_t maxExpirationDuration = [OWSDisappearingMessagesConfiguration maxDurationSeconds];
     if (expiresInSeconds > maxExpirationDuration) {
-        OWSProdLogAndFail(@"%@ in %s using `maxExpirationDuration` instead of: %u",
-            self.logTag,
-            __PRETTY_FUNCTION__,
-            maxExpirationDuration);
+        OWSFailDebug(@"using `maxExpirationDuration` instead of: %u", maxExpirationDuration);
     }
 
     _expiresInSeconds = MIN(expiresInSeconds, maxExpirationDuration);
@@ -169,13 +151,13 @@ static const NSUInteger OWSMessageSchemaVersion = 4;
 - (void)setExpireStartedAt:(uint64_t)expireStartedAt
 {
     if (_expireStartedAt != 0 && _expireStartedAt < expireStartedAt) {
-        DDLogDebug(@"%@ in %s ignoring later startedAt time", self.logTag, __PRETTY_FUNCTION__);
+        OWSLogDebug(@"ignoring later startedAt time");
         return;
     }
 
     uint64_t now = [NSDate ows_millisecondTimeStamp];
     if (expireStartedAt > now) {
-        DDLogWarn(@"%@ in %s using `now` instead of future time", self.logTag, __PRETTY_FUNCTION__);
+        OWSLogWarn(@"using `now` instead of future time");
     }
 
     _expireStartedAt = MIN(now, expireStartedAt);
@@ -202,14 +184,63 @@ static const NSUInteger OWSMessageSchemaVersion = 4;
     return self.attachmentIds ? (self.attachmentIds.count > 0) : NO;
 }
 
-- (nullable TSAttachment *)attachmentWithTransaction:(YapDatabaseReadTransaction *)transaction
+- (NSArray<NSString *> *)allAttachmentIds
 {
-    if (!self.hasAttachments) {
-        return nil;
+    NSMutableArray<NSString *> *result = [NSMutableArray new];
+    if (self.attachmentIds.count > 0) {
+        [result addObjectsFromArray:self.attachmentIds];
     }
 
-    OWSAssert(self.attachmentIds.count == 1);
-    return [TSAttachment fetchObjectWithUniqueID:self.attachmentIds.firstObject transaction:transaction];
+    if (self.quotedMessage) {
+        [result addObjectsFromArray:self.quotedMessage.thumbnailAttachmentStreamIds];
+    }
+
+    if (self.contactShare.avatarAttachmentId) {
+        [result addObject:self.contactShare.avatarAttachmentId];
+    }
+
+    if (self.linkPreview.imageAttachmentId) {
+        [result addObject:self.linkPreview.imageAttachmentId];
+    }
+
+    return [result copy];
+}
+
+- (NSArray<TSAttachment *> *)attachmentsWithTransaction:(YapDatabaseReadTransaction *)transaction
+{
+    NSMutableArray<TSAttachment *> *attachments = [NSMutableArray new];
+    for (NSString *attachmentId in self.attachmentIds) {
+        TSAttachment *_Nullable attachment =
+            [TSAttachment fetchObjectWithUniqueID:attachmentId transaction:transaction];
+        if (attachment) {
+            [attachments addObject:attachment];
+        }
+    }
+    return [attachments copy];
+}
+
+- (void)removeAttachment:(TSAttachment *)attachment transaction:(YapDatabaseReadWriteTransaction *)transaction;
+{
+    OWSAssertDebug([self.attachmentIds containsObject:attachment.uniqueId]);
+    [attachment removeWithTransaction:transaction];
+
+    [self.attachmentIds removeObject:attachment.uniqueId];
+
+    [self saveWithTransaction:transaction];
+}
+
+- (BOOL)isMediaAlbumWithTransaction:(YapDatabaseReadTransaction *)transaction
+{
+    NSArray<TSAttachment *> *attachments = [self attachmentsWithTransaction:transaction];
+    if (attachments.count < 1) {
+        return NO;
+    }
+    for (TSAttachment *attachment in attachments) {
+        if (!attachment.isVisualMedia) {
+            return NO;
+        }
+    }
+    return YES;
 }
 
 - (NSString *)debugDescription
@@ -226,6 +257,47 @@ static const NSUInteger OWSMessageSchemaVersion = 4;
     }
 }
 
+- (nullable NSString *)oversizeTextWithTransaction:(YapDatabaseReadTransaction *)transaction
+{
+    if (self.attachmentIds.count != 1) {
+        return nil;
+    }
+
+    TSAttachment *_Nullable attachment = [self attachmentsWithTransaction:transaction].firstObject;
+    if (![OWSMimeTypeOversizeTextMessage isEqualToString:attachment.contentType]
+        || ![attachment isKindOfClass:TSAttachmentStream.class]) {
+        return nil;
+    }
+
+    TSAttachmentStream *attachmentStream = (TSAttachmentStream *)attachment;
+
+    NSData *_Nullable data = [NSData dataWithContentsOfFile:attachmentStream.originalFilePath];
+    if (!data) {
+        OWSFailDebug(@"Can't load oversize text data.");
+        return nil;
+    }
+    NSString *_Nullable text = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    if (!text) {
+        OWSFailDebug(@"Can't parse oversize text data.");
+        return nil;
+    }
+    return text.filterStringForDisplay;
+}
+
+- (nullable NSString *)bodyTextWithTransaction:(YapDatabaseReadTransaction *)transaction
+{
+    NSString *_Nullable oversizeText = [self oversizeTextWithTransaction:transaction];
+    if (oversizeText) {
+        return oversizeText;
+    }
+
+    if (self.body.length > 0) {
+        return self.body.filterStringForDisplay;
+    }
+
+    return nil;
+}
+
 // TODO: This method contains view-specific logic and probably belongs in NotificationsManager, not in SSK.
 - (NSString *)previewTextWithTransaction:(YapDatabaseReadTransaction *)transaction
 {    
@@ -237,7 +309,7 @@ static const NSUInteger OWSMessageSchemaVersion = 4;
             // Handle oversize text attachments.
             if ([attachment isKindOfClass:[TSAttachmentStream class]]) {
                 TSAttachmentStream *attachmentStream = (TSAttachmentStream *)attachment;
-                NSData *_Nullable data = [NSData dataWithContentsOfFile:attachmentStream.filePath];
+                NSData *_Nullable data = [NSData dataWithContentsOfFile:attachmentStream.originalFilePath];
                 if (data) {
                     NSString *_Nullable text = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
                     if (text) {
@@ -278,7 +350,7 @@ static const NSUInteger OWSMessageSchemaVersion = 4;
             return [@"👤 " stringByAppendingString:self.contactShare.name.displayName];
         }
     } else {
-        OWSFail(@"%@ message has neither body nor attachment.", self.logTag);
+        OWSFailDebug(@"message has neither body nor attachment.");
         // TODO: We should do better here.
         return @"";
     }
@@ -288,20 +360,16 @@ static const NSUInteger OWSMessageSchemaVersion = 4;
 {
     [super removeWithTransaction:transaction];
 
-    for (NSString *attachmentId in self.attachmentIds) {
+    for (NSString *attachmentId in self.allAttachmentIds) {
         // We need to fetch each attachment, since [TSAttachment removeWithTransaction:] does important work.
         TSAttachment *_Nullable attachment =
             [TSAttachment fetchObjectWithUniqueID:attachmentId transaction:transaction];
         if (!attachment) {
-            OWSProdLogAndFail(@"%@ couldn't load interaction's attachment for deletion.", self.logTag);
+            OWSFailDebug(@"couldn't load interaction's attachment for deletion.");
             continue;
         }
         [attachment removeWithTransaction:transaction];
     };
-
-    if (self.contactShare.avatarAttachmentId) {
-        [self.contactShare removeAvatarAttachmentWithTransaction:transaction];
-    }
 
     // Updates inbox thread preview
     [self touchThreadWithTransaction:transaction];
@@ -317,12 +385,12 @@ static const NSUInteger OWSMessageSchemaVersion = 4;
     return self.expiresInSeconds > 0;
 }
 
-- (uint64_t)timestampForSorting
+- (uint64_t)timestampForLegacySorting
 {
     if ([self shouldUseReceiptDateForSorting] && self.receivedAtTimestamp > 0) {
         return self.receivedAtTimestamp;
     } else {
-        OWSAssert(self.timestamp > 0);
+        OWSAssertDebug(self.timestamp > 0);
         return self.timestamp;
     }
 }
@@ -339,9 +407,9 @@ static const NSUInteger OWSMessageSchemaVersion = 4;
 
 - (void)setQuotedMessageThumbnailAttachmentStream:(TSAttachmentStream *)attachmentStream
 {
-    OWSAssert([attachmentStream isKindOfClass:[TSAttachmentStream class]]);
-    OWSAssert(self.quotedMessage);
-    OWSAssert(self.quotedMessage.quotedAttachments.count == 1);
+    OWSAssertDebug([attachmentStream isKindOfClass:[TSAttachmentStream class]]);
+    OWSAssertDebug(self.quotedMessage);
+    OWSAssertDebug(self.quotedMessage.quotedAttachments.count == 1);
 
     [self.quotedMessage setThumbnailAttachmentStream:attachmentStream];
 }
@@ -351,7 +419,7 @@ static const NSUInteger OWSMessageSchemaVersion = 4;
 - (void)applyChangeToSelfAndLatestCopy:(YapDatabaseReadWriteTransaction *)transaction
                            changeBlock:(void (^)(id))changeBlock
 {
-    OWSAssert(transaction);
+    OWSAssertDebug(transaction);
 
     [super applyChangeToSelfAndLatestCopy:transaction changeBlock:changeBlock];
     [self touchThreadWithTransaction:transaction];
@@ -359,11 +427,22 @@ static const NSUInteger OWSMessageSchemaVersion = 4;
 
 - (void)updateWithExpireStartedAt:(uint64_t)expireStartedAt transaction:(YapDatabaseReadWriteTransaction *)transaction
 {
-    OWSAssert(expireStartedAt > 0);
+    OWSAssertDebug(expireStartedAt > 0);
 
     [self applyChangeToSelfAndLatestCopy:transaction
                              changeBlock:^(TSMessage *message) {
                                  [message setExpireStartedAt:expireStartedAt];
+                             }];
+}
+
+- (void)updateWithLinkPreview:(OWSLinkPreview *)linkPreview transaction:(YapDatabaseReadWriteTransaction *)transaction
+{
+    OWSAssertDebug(linkPreview);
+    OWSAssertDebug(transaction);
+
+    [self applyChangeToSelfAndLatestCopy:transaction
+                             changeBlock:^(TSMessage *message) {
+                                 [message setLinkPreview:linkPreview];
                              }];
 }
 

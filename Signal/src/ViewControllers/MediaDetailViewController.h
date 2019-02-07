@@ -1,14 +1,16 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 #import <SignalMessaging/OWSViewController.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
-@class ConversationViewItem;
+@protocol ConversationViewItem;
+
 @class GalleryItemBox;
 @class MediaDetailViewController;
+@class TSAttachment;
 
 typedef NS_OPTIONS(NSInteger, MediaGalleryOption) {
     MediaGalleryOptionSliderEnabled = 1 << 0,
@@ -18,7 +20,7 @@ typedef NS_OPTIONS(NSInteger, MediaGalleryOption) {
 @protocol MediaDetailViewControllerDelegate <NSObject>
 
 - (void)mediaDetailViewController:(MediaDetailViewController *)mediaDetailViewController
-    requestDeleteConversationViewItem:(ConversationViewItem *)conversationViewItem;
+          requestDeleteAttachment:(TSAttachment *)attachment;
 
 - (void)mediaDetailViewController:(MediaDetailViewController *)mediaDetailViewController
                    isPlayingVideo:(BOOL)isPlayingVideo;
@@ -34,11 +36,9 @@ typedef NS_OPTIONS(NSInteger, MediaGalleryOption) {
 
 // If viewItem is non-null, long press will show a menu controller.
 - (instancetype)initWithGalleryItemBox:(GalleryItemBox *)galleryItemBox
-                              viewItem:(ConversationViewItem *_Nullable)viewItem;
+                              viewItem:(nullable id<ConversationViewItem>)viewItem;
 #pragma mark - Actions
 
-- (void)didPressShare:(id)sender;
-- (void)didPressDelete:(id)sender;
 - (void)didPressPlayBarButton:(id)sender;
 - (void)didPressPauseBarButton:(id)sender;
 - (void)playVideo;

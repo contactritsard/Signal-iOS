@@ -93,7 +93,7 @@ NSString *const kNSNotificationName_IsCensorshipCircumventionActiveDidChange =
     if (localNumber) {
         self.hasCensoredPhoneNumber = [OWSCensorshipConfiguration isCensoredPhoneNumber:localNumber];
     } else {
-        DDLogError(@"%@ no known phone number to check for censorship.", self.logTag);
+        OWSLogError(@"no known phone number to check for censorship.");
         self.hasCensoredPhoneNumber = NO;
     }
 
@@ -150,9 +150,7 @@ NSString *const kNSNotificationName_IsCensorshipCircumventionActiveDidChange =
 - (AFHTTPSessionManager *)signalServiceSessionManager
 {
     if (self.isCensorshipCircumventionActive) {
-        DDLogInfo(@"%@ using reflector HTTPSessionManager via: %@",
-            self.logTag,
-            self.censorshipConfiguration.domainFrontBaseURL);
+        OWSLogInfo(@"using reflector HTTPSessionManager via: %@", self.censorshipConfiguration.domainFrontBaseURL);
         return self.reflectorSignalServiceSessionManager;
     } else {
         return self.defaultSignalServiceSessionManager;
@@ -162,7 +160,7 @@ NSString *const kNSNotificationName_IsCensorshipCircumventionActiveDidChange =
 - (AFHTTPSessionManager *)defaultSignalServiceSessionManager
 {
     NSURL *baseURL = [[NSURL alloc] initWithString:textSecureServerURL];
-    OWSAssert(baseURL);
+    OWSAssertDebug(baseURL);
     NSURLSessionConfiguration *sessionConf = NSURLSessionConfiguration.ephemeralSessionConfiguration;
     AFHTTPSessionManager *sessionManager =
         [[AFHTTPSessionManager alloc] initWithBaseURL:baseURL sessionConfiguration:sessionConf];
@@ -170,6 +168,8 @@ NSString *const kNSNotificationName_IsCensorshipCircumventionActiveDidChange =
     sessionManager.securityPolicy = [OWSHTTPSecurityPolicy sharedPolicy];
     sessionManager.requestSerializer = [AFJSONRequestSerializer serializer];
     sessionManager.responseSerializer = [AFJSONResponseSerializer serializer];
+    // Disable default cookie handling for all requests.
+    sessionManager.requestSerializer.HTTPShouldHandleCookies = NO;
 
     return sessionManager;
 }
@@ -188,6 +188,8 @@ NSString *const kNSNotificationName_IsCensorshipCircumventionActiveDidChange =
     sessionManager.requestSerializer = [AFJSONRequestSerializer serializer];
     [sessionManager.requestSerializer setValue:self.censorshipConfiguration.signalServiceReflectorHost forHTTPHeaderField:@"Host"];
     sessionManager.responseSerializer = [AFJSONResponseSerializer serializer];
+    // Disable default cookie handling for all requests.
+    sessionManager.requestSerializer.HTTPShouldHandleCookies = NO;
 
     return sessionManager;
 }
@@ -197,9 +199,7 @@ NSString *const kNSNotificationName_IsCensorshipCircumventionActiveDidChange =
 - (AFHTTPSessionManager *)CDNSessionManager
 {
     if (self.isCensorshipCircumventionActive) {
-        DDLogInfo(@"%@ using reflector CDNSessionManager via: %@",
-            self.logTag,
-            self.censorshipConfiguration.domainFrontBaseURL);
+        OWSLogInfo(@"using reflector CDNSessionManager via: %@", self.censorshipConfiguration.domainFrontBaseURL);
         return self.reflectorCDNSessionManager;
     } else {
         return self.defaultCDNSessionManager;
@@ -209,7 +209,7 @@ NSString *const kNSNotificationName_IsCensorshipCircumventionActiveDidChange =
 - (AFHTTPSessionManager *)defaultCDNSessionManager
 {
     NSURL *baseURL = [[NSURL alloc] initWithString:textSecureCDNServerURL];
-    OWSAssert(baseURL);
+    OWSAssertDebug(baseURL);
     
     NSURLSessionConfiguration *sessionConf = NSURLSessionConfiguration.ephemeralSessionConfiguration;
     AFHTTPSessionManager *sessionManager =
@@ -262,12 +262,12 @@ NSString *const kNSNotificationName_IsCensorshipCircumventionActiveDidChange =
     if (self.isCensorshipCircumventionManuallyActivated) {
         NSString *countryCode = self.manualCensorshipCircumventionCountryCode;
         if (countryCode.length == 0) {
-            OWSFail(@"%@ manualCensorshipCircumventionCountryCode was unexpectedly 0", self.logTag);
+            OWSFailDebug(@"manualCensorshipCircumventionCountryCode was unexpectedly 0");
         }
 
         OWSCensorshipConfiguration *configuration =
             [OWSCensorshipConfiguration censorshipConfigurationWithCountryCode:countryCode];
-        OWSAssert(configuration);
+        OWSAssertDebug(configuration);
 
         return configuration;
     }

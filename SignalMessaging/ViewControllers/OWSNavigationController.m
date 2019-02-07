@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 #import "OWSNavigationController.h"
@@ -24,25 +24,42 @@ NS_ASSUME_NONNULL_BEGIN
 
 @implementation OWSNavigationController
 
-- (instancetype)initWithRootViewController:(UIViewController *)rootViewController
+- (instancetype)init
 {
-    self = [self initWithNavigationBarClass:[OWSNavigationBar class] toolbarClass:nil];
+    self = [super initWithNavigationBarClass:[OWSNavigationBar class] toolbarClass:nil];
     if (!self) {
         return self;
     }
-
-    [self pushViewController:rootViewController animated:NO];
-
-    if (![self.navigationBar isKindOfClass:[OWSNavigationBar class]]) {
-        OWSFail(@"%@ navigationBar was unexpected class: %@", self.logTag, self.navigationBar);
-        return self;
-    }
-
-    OWSNavigationBar *navbar = (OWSNavigationBar *)self.navigationBar;
-    navbar.navBarLayoutDelegate = self;
-    [self updateLayoutForNavbar:navbar];
+    [self setupNavbar];
 
     return self;
+}
+
+- (instancetype)initWithRootViewController:(UIViewController *)rootViewController
+{
+    self = [self init];
+    if (!self) {
+        return self;
+    }
+    [self pushViewController:rootViewController animated:NO];
+
+    return self;
+}
+
+- (void)dealloc
+{
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+}
+
+#pragma mark -
+
+- (void)themeDidChange:(NSNotification *)notification
+{
+    OWSAssertIsOnMainThread();
+
+    self.navigationBar.barTintColor = [UINavigationBar appearance].barTintColor;
+    self.navigationBar.tintColor = [UINavigationBar appearance].tintColor;
+    self.navigationBar.titleTextAttributes = [UINavigationBar appearance].titleTextAttributes;
 }
 
 - (void)viewDidLoad
@@ -54,12 +71,28 @@ NS_ASSUME_NONNULL_BEGIN
 
 #pragma mark - UINavigationBarDelegate
 
+- (void)setupNavbar
+{
+    if (![self.navigationBar isKindOfClass:[OWSNavigationBar class]]) {
+        OWSFailDebug(@"navigationBar was unexpected class: %@", self.navigationBar);
+        return;
+    }
+    OWSNavigationBar *navbar = (OWSNavigationBar *)self.navigationBar;
+    navbar.navBarLayoutDelegate = self;
+    [self updateLayoutForNavbar:navbar];
+
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(themeDidChange:)
+                                                 name:ThemeDidChangeNotification
+                                               object:nil];
+}
+
 // All OWSNavigationController serve as the UINavigationBarDelegate for their navbar.
 // We override shouldPopItem: in order to cancel some back button presses - for example,
 // if a view has unsaved changes.
 - (BOOL)navigationBar:(UINavigationBar *)navigationBar shouldPopItem:(UINavigationItem *)item
 {
-    OWSAssert(self.interactivePopGestureRecognizer.delegate == self);
+    OWSAssertDebug(self.interactivePopGestureRecognizer.delegate == self);
     UIViewController *topViewController = self.topViewController;
 
     // wasBackButtonClicked is YES if the back button was pressed but not
@@ -91,7 +124,7 @@ NS_ASSUME_NONNULL_BEGIN
 // if a view has unsaved changes.
 - (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gestureRecognizer
 {
-    OWSAssert(gestureRecognizer == self.interactivePopGestureRecognizer);
+    OWSAssertDebug(gestureRecognizer == self.interactivePopGestureRecognizer);
 
     UIViewController *topViewController = self.topViewController;
     if ([topViewController conformsToProtocol:@protocol(OWSNavigationView)]) {
@@ -117,51 +150,42 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (UIStatusBarStyle)preferredStatusBarStyle
 {
-    if (OWSWindowManager.sharedManager.hasCall) {
+    if (!CurrentAppContext().isMainApp) {
+        return super.preferredStatusBarStyle;
+    } else if (OWSWindowManager.sharedManager.hasCall) {
         // Status bar is overlaying the green "call banner"
         return UIStatusBarStyleLightContent;
     } else {
-        return (Theme.isDarkThemeEnabled ? UIStatusBarStyleLightContent : super.preferredStatusBarStyle);
+        UIViewController *presentedViewController = self.presentedViewController;
+        if (presentedViewController) {
+            return presentedViewController.preferredStatusBarStyle;
+        } else {
+            return (Theme.isDarkThemeEnabled ? UIStatusBarStyleLightContent : super.preferredStatusBarStyle);
+        }
     }
 }
 
 - (void)updateLayoutForNavbar:(OWSNavigationBar *)navbar
 {
-    DDLogDebug(@"%@ in %s", self.logTag, __PRETTY_FUNCTION__);
+    OWSLogDebug(@"");
 
     [UIView setAnimationsEnabled:NO];
 
     if (@available(iOS 11.0, *)) {
-        if (OWSWindowManager.sharedManager.hasCall) {
-            if (UIDevice.currentDevice.isIPhoneX) {
-                // iPhoneX computes status bar height differently.
-                // IOS_DEVICE_CONSTANT
-                self.additionalSafeAreaInsets = UIEdgeInsetsMake(navbar.navbarWithoutStatusHeight + 20, 0, 0, 0);
-
-            } else {
-                self.additionalSafeAreaInsets
-                    = UIEdgeInsetsMake(navbar.navbarWithoutStatusHeight + CurrentAppContext().statusBarHeight, 0, 0, 0);
-            }
+        if (!CurrentAppContext().isMainApp) {
+            self.additionalSafeAreaInsets = UIEdgeInsetsZero;
+        } else if (OWSWindowManager.sharedManager.hasCall) {
+            self.additionalSafeAreaInsets = UIEdgeInsetsMake(20, 0, 0, 0);
         } else {
             self.additionalSafeAreaInsets = UIEdgeInsetsZero;
         }
+
         // in iOS11 we have to ensure the navbar frame *in* layoutSubviews.
         [navbar layoutSubviews];
     } else {
-        // Pre iOS11 we size the navbar, and position it vertically once.
+        // in iOS9/10 we only need to size the navbar once
         [navbar sizeToFit];
-
-        if (OWSWindowManager.sharedManager.hasCall) {
-            CGRect oldFrame = navbar.frame;
-            CGRect newFrame = oldFrame;
-            newFrame.size.height = navbar.callBannerHeight;
-            navbar.frame = newFrame;
-        } else {
-            CGRect oldFrame = navbar.frame;
-            CGRect newFrame
-                = CGRectMake(oldFrame.origin.x, navbar.statusBarHeight, oldFrame.size.width, oldFrame.size.height);
-            navbar.frame = newFrame;
-        }
+        [navbar layoutIfNeeded];
 
         // Since the navbar's frame was updated, we need to be sure our child VC's
         // container view is updated.
@@ -169,6 +193,17 @@ NS_ASSUME_NONNULL_BEGIN
         [self.view layoutSubviews];
     }
     [UIView setAnimationsEnabled:YES];
+}
+
+#pragma mark - Orientation
+
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations
+{
+    if (self.topViewController) {
+        return self.topViewController.supportedInterfaceOrientations;
+    } else {
+        return UIInterfaceOrientationMaskPortrait;
+    }
 }
 
 @end

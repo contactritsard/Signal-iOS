@@ -1,12 +1,12 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 #import "OWSOutgoingSyncMessage.h"
-#import "Cryptography.h"
-#import "NSDate+OWS.h"
-#import "OWSSignalServiceProtos.pb.h"
-#import "ProtoBuf+OWS.h"
+#import "ProtoUtils.h"
+#import <SignalCoreKit/Cryptography.h>
+#import <SignalCoreKit/NSDate+OWS.h>
+#import <SignalServiceKit/SignalServiceKit-Swift.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -19,6 +19,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (instancetype)init
 {
+    // MJK TODO - remove SenderTimestamp
     self = [super initOutgoingMessageWithTimestamp:[NSDate ows_millisecondTimeStamp]
                                           inThread:nil
                                        messageBody:nil
@@ -26,9 +27,10 @@ NS_ASSUME_NONNULL_BEGIN
                                   expiresInSeconds:0
                                    expireStartedAt:0
                                     isVoiceMessage:NO
-                                  groupMetaMessage:TSGroupMessageUnspecified
+                                  groupMetaMessage:TSGroupMetaMessageUnspecified
                                      quotedMessage:nil
-                                      contactShare:nil];
+                                      contactShare:nil
+                                       linkPreview:nil];
 
     if (!self) {
         return self;
@@ -48,28 +50,51 @@ NS_ASSUME_NONNULL_BEGIN
 }
 
 // This method should not be overridden, since we want to add random padding to *every* sync message
-- (OWSSignalServiceProtosSyncMessage *)buildSyncMessage
+- (nullable SSKProtoSyncMessage *)buildSyncMessage
 {
-    OWSSignalServiceProtosSyncMessageBuilder *builder = [self syncMessageBuilder];
-    
+    SSKProtoSyncMessageBuilder *_Nullable builder = [self syncMessageBuilder];
+    if (!builder) {
+        return nil;
+    }
+
     // Add a random 1-512 bytes to obscure sync message type
     size_t paddingBytesLength = arc4random_uniform(512) + 1;
     builder.padding = [Cryptography generateRandomBytes:paddingBytesLength];
 
-    return [builder build];
+    NSError *error;
+    SSKProtoSyncMessage *_Nullable proto = [builder buildAndReturnError:&error];
+    if (error || !proto) {
+        OWSFailDebug(@"could not build protobuf: %@", error);
+        return nil;
+    }
+    return proto;
 }
 
-- (OWSSignalServiceProtosSyncMessageBuilder *)syncMessageBuilder
+- (nullable SSKProtoSyncMessageBuilder *)syncMessageBuilder
 {
-    OWSFail(@"Abstract method should be overridden in subclass.");
-    return [OWSSignalServiceProtosSyncMessageBuilder new];
+    OWSAbstractMethod();
+
+    return [SSKProtoSyncMessage builder];
 }
 
-- (NSData *)buildPlainTextData:(SignalRecipient *)recipient
+- (nullable NSData *)buildPlainTextData:(SignalRecipient *)recipient
 {
-    OWSSignalServiceProtosContentBuilder *contentBuilder = [OWSSignalServiceProtosContentBuilder new];
-    [contentBuilder setSyncMessage:[self buildSyncMessage]];
-    return [[contentBuilder build] data];
+    SSKProtoSyncMessage *_Nullable syncMessage = [self buildSyncMessage];
+    if (!syncMessage) {
+        return nil;
+    }
+
+    SSKProtoContentBuilder *contentBuilder = [SSKProtoContent builder];
+    [contentBuilder setSyncMessage:syncMessage];
+
+    NSError *error;
+    NSData *_Nullable data = [contentBuilder buildSerializedDataAndReturnError:&error];
+    if (error || !data) {
+        OWSFailDebug(@"could not serialize protobuf: %@", error);
+        return nil;
+    }
+
+    return data;
 }
 
 @end

@@ -3,9 +3,9 @@
 //
 
 #import "OWSOutgoingSentMessageTranscript.h"
-#import "OWSSignalServiceProtos.pb.h"
 #import "TSOutgoingMessage.h"
 #import "TSThread.h"
+#import <SignalServiceKit/SignalServiceKit-Swift.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -18,7 +18,7 @@ NS_ASSUME_NONNULL_BEGIN
  * recipientId is nil when building "sent" sync messages for messages
  * sent to groups.
  */
-- (OWSSignalServiceProtosDataMessage *)buildDataMessage:(NSString *_Nullable)recipientId;
+- (nullable SSKProtoDataMessage *)buildDataMessage:(NSString *_Nullable)recipientId;
 
 @end
 
@@ -53,19 +53,55 @@ NS_ASSUME_NONNULL_BEGIN
     return [super initWithCoder:coder];
 }
 
-- (OWSSignalServiceProtosSyncMessageBuilder *)syncMessageBuilder
+- (nullable SSKProtoSyncMessageBuilder *)syncMessageBuilder
 {
-    OWSSignalServiceProtosSyncMessageBuilder *syncMessageBuilder = [OWSSignalServiceProtosSyncMessageBuilder new];
-
-    OWSSignalServiceProtosSyncMessageSentBuilder *sentBuilder = [OWSSignalServiceProtosSyncMessageSentBuilder new];
+    SSKProtoSyncMessageSentBuilder *sentBuilder = [SSKProtoSyncMessageSent builder];
     [sentBuilder setTimestamp:self.message.timestamp];
-
     [sentBuilder setDestination:self.sentRecipientId];
-    [sentBuilder setMessage:[self.message buildDataMessage:self.sentRecipientId]];
+
+    SSKProtoDataMessage *_Nullable dataMessage = [self.message buildDataMessage:self.sentRecipientId];
+    if (!dataMessage) {
+        OWSFailDebug(@"could not build protobuf.");
+        return nil;
+    }
+    [sentBuilder setMessage:dataMessage];
     [sentBuilder setExpirationStartTimestamp:self.message.timestamp];
 
-    [syncMessageBuilder setSentBuilder:sentBuilder];
+    for (NSString *recipientId in self.message.sentRecipientIds) {
+        TSOutgoingMessageRecipientState *_Nullable recipientState =
+            [self.message recipientStateForRecipientId:recipientId];
+        if (!recipientState) {
+            OWSFailDebug(@"missing recipient state for: %@", recipientId);
+            continue;
+        }
+        if (recipientState.state != OWSOutgoingMessageRecipientStateSent) {
+            OWSFailDebug(@"unexpected recipient state for: %@", recipientId);
+            continue;
+        }
 
+        NSError *error;
+        SSKProtoSyncMessageSentUnidentifiedDeliveryStatusBuilder *statusBuilder =
+            [SSKProtoSyncMessageSentUnidentifiedDeliveryStatus builder];
+        [statusBuilder setDestination:recipientId];
+        [statusBuilder setUnidentified:recipientState.wasSentByUD];
+        SSKProtoSyncMessageSentUnidentifiedDeliveryStatus *_Nullable status =
+            [statusBuilder buildAndReturnError:&error];
+        if (error || !status) {
+            OWSFailDebug(@"Couldn't build UD status proto: %@", error);
+            continue;
+        }
+        [sentBuilder addUnidentifiedStatus:status];
+    }
+
+    NSError *error;
+    SSKProtoSyncMessageSent *_Nullable sentProto = [sentBuilder buildAndReturnError:&error];
+    if (error || !sentProto) {
+        OWSFailDebug(@"could not build protobuf: %@", error);
+        return nil;
+    }
+
+    SSKProtoSyncMessageBuilder *syncMessageBuilder = [SSKProtoSyncMessage builder];
+    [syncMessageBuilder setSent:sentProto];
     return syncMessageBuilder;
 }
 

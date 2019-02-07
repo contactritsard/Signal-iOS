@@ -1,18 +1,13 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 #import "OWSOutgoingCallMessage.h"
-#import "NSDate+OWS.h"
-#import "OWSCallAnswerMessage.h"
-#import "OWSCallBusyMessage.h"
-#import "OWSCallHangupMessage.h"
-#import "OWSCallIceUpdateMessage.h"
-#import "OWSCallOfferMessage.h"
-#import "OWSSignalServiceProtos.pb.h"
-#import "ProtoBuf+OWS.h"
+#import "ProtoUtils.h"
 #import "SignalRecipient.h"
 #import "TSContactThread.h"
+#import <SignalCoreKit/NSDate+OWS.h>
+#import <SignalServiceKit/SignalServiceKit-Swift.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -20,8 +15,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (instancetype)initWithThread:(TSThread *)thread
 {
-    // These records aren't saved, but their timestamp is used in the event
-    // of a failing message send to insert the error at the appropriate place.
+    // MJK TODO - safe to remove senderTimestamp
     self = [super initOutgoingMessageWithTimestamp:[NSDate ows_millisecondTimeStamp]
                                           inThread:thread
                                        messageBody:nil
@@ -29,9 +23,10 @@ NS_ASSUME_NONNULL_BEGIN
                                   expiresInSeconds:0
                                    expireStartedAt:0
                                     isVoiceMessage:NO
-                                  groupMetaMessage:TSGroupMessageUnspecified
+                                  groupMetaMessage:TSGroupMetaMessageUnspecified
                                      quotedMessage:nil
-                                      contactShare:nil];
+                                      contactShare:nil
+                                       linkPreview:nil];
     if (!self) {
         return self;
     }
@@ -39,7 +34,7 @@ NS_ASSUME_NONNULL_BEGIN
     return self;
 }
 
-- (instancetype)initWithThread:(TSThread *)thread offerMessage:(OWSCallOfferMessage *)offerMessage
+- (instancetype)initWithThread:(TSThread *)thread offerMessage:(SSKProtoCallMessageOffer *)offerMessage
 {
     self = [self initWithThread:thread];
     if (!self) {
@@ -51,7 +46,7 @@ NS_ASSUME_NONNULL_BEGIN
     return self;
 }
 
-- (instancetype)initWithThread:(TSThread *)thread answerMessage:(OWSCallAnswerMessage *)answerMessage
+- (instancetype)initWithThread:(TSThread *)thread answerMessage:(SSKProtoCallMessageAnswer *)answerMessage
 {
     self = [self initWithThread:thread];
     if (!self) {
@@ -63,7 +58,7 @@ NS_ASSUME_NONNULL_BEGIN
     return self;
 }
 
-- (instancetype)initWithThread:(TSThread *)thread iceUpdateMessage:(OWSCallIceUpdateMessage *)iceUpdateMessage
+- (instancetype)initWithThread:(TSThread *)thread iceUpdateMessage:(SSKProtoCallMessageIceUpdate *)iceUpdateMessage
 {
     self = [self initWithThread:thread];
     if (!self) {
@@ -76,7 +71,7 @@ NS_ASSUME_NONNULL_BEGIN
 }
 
 - (instancetype)initWithThread:(TSThread *)thread
-             iceUpdateMessages:(NSArray<OWSCallIceUpdateMessage *> *)iceUpdateMessages
+             iceUpdateMessages:(NSArray<SSKProtoCallMessageIceUpdate *> *)iceUpdateMessages
 {
     self = [self initWithThread:thread];
     if (!self) {
@@ -88,7 +83,7 @@ NS_ASSUME_NONNULL_BEGIN
     return self;
 }
 
-- (instancetype)initWithThread:(TSThread *)thread hangupMessage:(OWSCallHangupMessage *)hangupMessage
+- (instancetype)initWithThread:(TSThread *)thread hangupMessage:(SSKProtoCallMessageHangup *)hangupMessage
 {
     self = [self initWithThread:thread];
     if (!self) {
@@ -100,7 +95,7 @@ NS_ASSUME_NONNULL_BEGIN
     return self;
 }
 
-- (instancetype)initWithThread:(TSThread *)thread busyMessage:(OWSCallBusyMessage *)busyMessage
+- (instancetype)initWithThread:(TSThread *)thread busyMessage:(SSKProtoCallMessageBusy *)busyMessage
 {
     self = [self initWithThread:thread];
     if (!self) {
@@ -126,54 +121,55 @@ NS_ASSUME_NONNULL_BEGIN
     return YES;
 }
 
-//
-///**
-// * override thread accessor in superclass, since this model is never saved.
-// * TODO review
-// */
-//- (TSThread *)thread
-//{
-//    return _thread;
-//}
-
-- (NSData *)buildPlainTextData:(SignalRecipient *)recipient
+- (nullable NSData *)buildPlainTextData:(SignalRecipient *)recipient
 {
-    OWSAssert(recipient);
+    OWSAssertDebug(recipient);
 
-    OWSSignalServiceProtosContentBuilder *contentBuilder = [OWSSignalServiceProtosContentBuilder new];
-    [contentBuilder setCallMessage:[self buildCallMessage:recipient.recipientId]];
-    return [[contentBuilder build] data];
+    SSKProtoContentBuilder *builder = [SSKProtoContent builder];
+    [builder setCallMessage:[self buildCallMessage:recipient.recipientId]];
+    
+    NSError *error;
+    NSData *_Nullable data = [builder buildSerializedDataAndReturnError:&error];
+    if (error || !data) {
+        OWSFailDebug(@"could not serialize protobuf: %@", error);
+        return nil;
+    }
+    return data;
 }
 
-- (OWSSignalServiceProtosCallMessage *)buildCallMessage:(NSString *)recipientId
+- (nullable SSKProtoCallMessage *)buildCallMessage:(NSString *)recipientId
 {
-    OWSSignalServiceProtosCallMessageBuilder *builder = [OWSSignalServiceProtosCallMessageBuilder new];
+    SSKProtoCallMessageBuilder *builder = [SSKProtoCallMessage builder];
 
     if (self.offerMessage) {
-        [builder setOffer:[self.offerMessage asProtobuf]];
+        [builder setOffer:self.offerMessage];
     }
 
     if (self.answerMessage) {
-        [builder setAnswer:[self.answerMessage asProtobuf]];
+        [builder setAnswer:self.answerMessage];
     }
 
-    if (self.iceUpdateMessages) {
-        for (OWSCallIceUpdateMessage *iceUpdateMessage in self.iceUpdateMessages) {
-            [builder addIceUpdate:[iceUpdateMessage asProtobuf]];
-        }
+    if (self.iceUpdateMessages.count > 0) {
+        [builder setIceUpdate:self.iceUpdateMessages];
     }
 
     if (self.hangupMessage) {
-        [builder setHangup:[self.hangupMessage asProtobuf]];
+        [builder setHangup:self.hangupMessage];
     }
 
     if (self.busyMessage) {
-        [builder setBusy:[self.busyMessage asProtobuf]];
+        [builder setBusy:self.busyMessage];
     }
 
-    [builder addLocalProfileKeyIfNecessary:self.thread recipientId:recipientId];
+    [ProtoUtils addLocalProfileKeyIfNecessary:self.thread recipientId:recipientId callMessageBuilder:builder];
 
-    return [builder build];
+    NSError *error;
+    SSKProtoCallMessage *_Nullable result = [builder buildAndReturnError:&error];
+    if (error || !result) {
+        OWSFailDebug(@"could not build protobuf: %@", error);
+        return nil;
+    }
+    return result;
 }
 
 #pragma mark - TSYapDatabaseObject overrides

@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 #import "PrivacySettingsTableViewController.h"
@@ -9,11 +9,15 @@
 #import <SignalMessaging/Environment.h>
 #import <SignalMessaging/OWSPreferences.h>
 #import <SignalMessaging/ThreadUtil.h>
+#import <SignalMessaging/UIColor+OWS.h>
 #import <SignalServiceKit/NSString+SSK.h>
 #import <SignalServiceKit/OWS2FAManager.h>
 #import <SignalServiceKit/OWSReadReceiptManager.h>
+#import <SignalServiceKit/SignalServiceKit-Swift.h>
 
 NS_ASSUME_NONNULL_BEGIN
+
+static NSString *const kSealedSenderInfoURL = @"https://signal.org/blog/sealed-sender/";
 
 @implementation PrivacySettingsTableViewController
 
@@ -48,6 +52,28 @@ NS_ASSUME_NONNULL_BEGIN
     [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 
+#pragma mark - Dependencies
+
+- (id<OWSUDManager>)udManager
+{
+    return SSKEnvironment.shared.udManager;
+}
+
+- (OWSPreferences *)preferences
+{
+    return Environment.shared.preferences;
+}
+
+- (OWSReadReceiptManager *)readReceiptManager
+{
+    return OWSReadReceiptManager.sharedManager;
+}
+
+- (id<OWSTypingIndicators>)typingIndicators
+{
+    return SSKEnvironment.shared.typingIndicators;
+}
+
 #pragma mark - Table Contents
 
 - (void)updateTableContents
@@ -72,13 +98,24 @@ NS_ASSUME_NONNULL_BEGIN
         = NSLocalizedString(@"SETTINGS_READ_RECEIPT", @"Label for the 'read receipts' setting.");
     readReceiptsSection.footerTitle = NSLocalizedString(
         @"SETTINGS_READ_RECEIPTS_SECTION_FOOTER", @"An explanation of the 'read receipts' setting.");
-    [readReceiptsSection
-        addItem:[OWSTableItem switchItemWithText:NSLocalizedString(@"SETTINGS_READ_RECEIPT",
-                                                     @"Label for the 'read receipts' setting.")
-                                            isOn:[OWSReadReceiptManager.sharedManager areReadReceiptsEnabled]
-                                          target:weakSelf
-                                        selector:@selector(didToggleReadReceiptsSwitch:)]];
+    [readReceiptsSection addItem:[OWSTableItem switchItemWithText:NSLocalizedString(@"SETTINGS_READ_RECEIPT",
+                                                                      @"Label for the 'read receipts' setting.")
+                                                             isOn:[self.readReceiptManager areReadReceiptsEnabled]
+                                                           target:weakSelf
+                                                         selector:@selector(didToggleReadReceiptsSwitch:)]];
     [contents addSection:readReceiptsSection];
+
+    OWSTableSection *typingIndicatorsSection = [OWSTableSection new];
+    typingIndicatorsSection.headerTitle
+        = NSLocalizedString(@"SETTINGS_TYPING_INDICATORS", @"Label for the 'typing indicators' setting.");
+    typingIndicatorsSection.footerTitle = NSLocalizedString(
+        @"SETTINGS_TYPING_INDICATORS_FOOTER", @"An explanation of the 'typing indicators' setting.");
+    [typingIndicatorsSection addItem:[OWSTableItem switchItemWithText:NSLocalizedString(@"SETTINGS_TYPING_INDICATORS",
+                                                                          @"Label for the 'typing indicators' setting.")
+                                                                 isOn:[self.typingIndicators areTypingIndicatorsEnabled]
+                                                               target:weakSelf
+                                                             selector:@selector(didToggleTypingIndicatorsSwitch:)]];
+    [contents addSection:typingIndicatorsSection];
 
     OWSTableSection *screenLockSection = [OWSTableSection new];
     screenLockSection.headerTitle = NSLocalizedString(
@@ -114,7 +151,7 @@ NS_ASSUME_NONNULL_BEGIN
     screenSecuritySection.headerTitle = NSLocalizedString(@"SETTINGS_SECURITY_TITLE", @"Section header");
     screenSecuritySection.footerTitle = NSLocalizedString(@"SETTINGS_SCREEN_SECURITY_DETAIL", nil);
     [screenSecuritySection addItem:[OWSTableItem switchItemWithText:NSLocalizedString(@"SETTINGS_SCREEN_SECURITY", @"")
-                                                               isOn:[Environment.preferences screenSecurityIsEnabled]
+                                                               isOn:[self.preferences screenSecurityIsEnabled]
                                                              target:weakSelf
                                                            selector:@selector(didToggleScreenSecuritySwitch:)]];
     [contents addSection:screenSecuritySection];
@@ -128,7 +165,7 @@ NS_ASSUME_NONNULL_BEGIN
     [callingSection addItem:[OWSTableItem switchItemWithText:NSLocalizedString(
                                                                  @"SETTINGS_CALLING_HIDES_IP_ADDRESS_PREFERENCE_TITLE",
                                                                  @"Table cell label")
-                                                        isOn:[Environment.preferences doCallsHideIPAddress]
+                                                        isOn:[self.preferences doCallsHideIPAddress]
                                                       target:weakSelf
                                                     selector:@selector(didToggleCallsHideIPAddressSwitch:)]];
     [contents addSection:callingSection];
@@ -139,7 +176,7 @@ NS_ASSUME_NONNULL_BEGIN
             addItem:[OWSTableItem switchItemWithText:NSLocalizedString(
                                                          @"SETTINGS_PRIVACY_CALLKIT_SYSTEM_CALL_LOG_PREFERENCE_TITLE",
                                                          @"Short table cell label")
-                                                isOn:[Environment.preferences isSystemCallLogEnabled]
+                                                isOn:[self.preferences isSystemCallLogEnabled]
                                               target:weakSelf
                                             selector:@selector(didToggleEnableSystemCallLogSwitch:)]];
         callKitSection.footerTitle = NSLocalizedString(
@@ -151,14 +188,14 @@ NS_ASSUME_NONNULL_BEGIN
             = NSLocalizedString(@"SETTINGS_SECTION_CALL_KIT_DESCRIPTION", @"Settings table section footer.");
         [callKitSection addItem:[OWSTableItem switchItemWithText:NSLocalizedString(@"SETTINGS_PRIVACY_CALLKIT_TITLE",
                                                                      @"Short table cell label")
-                                                            isOn:[Environment.preferences isCallKitEnabled]
+                                                            isOn:[self.preferences isCallKitEnabled]
                                                           target:weakSelf
                                                         selector:@selector(didToggleEnableCallKitSwitch:)]];
-        if (Environment.preferences.isCallKitEnabled) {
+        if (self.preferences.isCallKitEnabled) {
             [callKitSection
                 addItem:[OWSTableItem switchItemWithText:NSLocalizedString(@"SETTINGS_PRIVACY_CALLKIT_PRIVACY_TITLE",
                                                              @"Label for 'CallKit privacy' preference")
-                                                    isOn:![Environment.preferences isCallKitPrivacyEnabled]
+                                                    isOn:![self.preferences isCallKitPrivacyEnabled]
                                                   target:weakSelf
                                                 selector:@selector(didToggleEnableCallKitPrivacySwitch:)]];
         }
@@ -191,6 +228,99 @@ NS_ASSUME_NONNULL_BEGIN
                                                              [weakSelf clearHistoryLogs];
                                                          }]];
     [contents addSection:historyLogsSection];
+
+    OWSTableSection *unidentifiedDeliveryIndicatorsSection = [OWSTableSection new];
+    unidentifiedDeliveryIndicatorsSection.headerTitle
+        = NSLocalizedString(@"SETTINGS_UNIDENTIFIED_DELIVERY_SECTION_TITLE", @"table section label");
+    [unidentifiedDeliveryIndicatorsSection
+        addItem:[OWSTableItem
+                    itemWithCustomCellBlock:^UITableViewCell * {
+                        UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleValue1
+                                                                       reuseIdentifier:@"UITableViewCellStyleValue1"];
+                        [OWSTableItem configureCell:cell];
+                        cell.preservesSuperviewLayoutMargins = YES;
+                        cell.contentView.preservesSuperviewLayoutMargins = YES;
+                        cell.selectionStyle = UITableViewCellSelectionStyleNone;
+
+                        UILabel *label = [UILabel new];
+                        label.text
+                            = NSLocalizedString(@"SETTINGS_UNIDENTIFIED_DELIVERY_SHOW_INDICATORS", @"switch label");
+                        label.font = [UIFont ows_regularFontWithSize:18.f];
+                        label.textColor = [Theme primaryColor];
+                        [label setContentHuggingHorizontalHigh];
+
+                        UIImage *icon = [UIImage imageNamed:@"ic_secret_sender_indicator"];
+                        UIImageView *iconView = [[UIImageView alloc]
+                            initWithImage:[icon imageWithRenderingMode:UIImageRenderingModeAlwaysTemplate]];
+                        iconView.tintColor = Theme.secondaryColor;
+                        [iconView setContentHuggingHorizontalHigh];
+
+                        UIView *spacer = [UIView new];
+                        [spacer setContentHuggingHorizontalLow];
+
+                        UISwitch *cellSwitch = [UISwitch new];
+                        cell.accessoryView = cellSwitch;
+                        [cellSwitch setOn:weakSelf.preferences.shouldShowUnidentifiedDeliveryIndicators];
+                        [cellSwitch addTarget:weakSelf
+                                       action:@selector(didToggleUDShowIndicatorsSwitch:)
+                             forControlEvents:UIControlEventValueChanged];
+                        [cellSwitch setContentHuggingHorizontalHigh];
+
+                        UIStackView *stackView =
+                            [[UIStackView alloc] initWithArrangedSubviews:@[ label, iconView, spacer, cellSwitch ]];
+                        stackView.axis = UILayoutConstraintAxisHorizontal;
+                        stackView.spacing = 10;
+                        stackView.alignment = UIStackViewAlignmentCenter;
+
+                        [cell.contentView addSubview:stackView];
+                        [stackView ows_autoPinToSuperviewMargins];
+                        return cell;
+                    }
+                    customRowHeight:UITableViewAutomaticDimension
+                    actionBlock:^{
+                        NSURL *url = [NSURL URLWithString:kSealedSenderInfoURL];
+                        OWSAssertDebug(url);
+                        [UIApplication.sharedApplication openURL:url];
+                    }]];
+
+    unidentifiedDeliveryIndicatorsSection.footerTitle
+        = NSLocalizedString(@"SETTINGS_UNIDENTIFIED_DELIVERY_SHOW_INDICATORS_FOOTER", @"table section footer");
+    [contents addSection:unidentifiedDeliveryIndicatorsSection];
+
+    OWSTableSection *unidentifiedDeliveryUnrestrictedSection = [OWSTableSection new];
+    OWSTableItem *unrestrictedAccessItem = [OWSTableItem
+        switchItemWithText:NSLocalizedString(@"SETTINGS_UNIDENTIFIED_DELIVERY_UNRESTRICTED_ACCESS", @"switch label")
+                      isOn:weakSelf.udManager.shouldAllowUnrestrictedAccessLocal
+                    target:weakSelf
+                  selector:@selector(didToggleUDUnrestrictedAccessSwitch:)];
+    [unidentifiedDeliveryUnrestrictedSection addItem:unrestrictedAccessItem];
+    unidentifiedDeliveryUnrestrictedSection.footerTitle
+        = NSLocalizedString(@"SETTINGS_UNIDENTIFIED_DELIVERY_UNRESTRICTED_ACCESS_FOOTER", @"table section footer");
+    [contents addSection:unidentifiedDeliveryUnrestrictedSection];
+
+    OWSTableSection *unidentifiedDeliveryLearnMoreSection = [OWSTableSection new];
+    [unidentifiedDeliveryLearnMoreSection
+        addItem:[OWSTableItem disclosureItemWithText:NSLocalizedString(@"SETTINGS_UNIDENTIFIED_DELIVERY_LEARN_MORE",
+                                                         @"Label for a link to more info about unidentified delivery.")
+                                         actionBlock:^{
+                                             NSURL *url = [NSURL URLWithString:kSealedSenderInfoURL];
+                                             OWSAssertDebug(url);
+                                             [UIApplication.sharedApplication openURL:url];
+                                         }]];
+    [contents addSection:unidentifiedDeliveryLearnMoreSection];
+
+    OWSTableSection *linkPreviewsSection = [OWSTableSection new];
+    [linkPreviewsSection
+        addItem:[OWSTableItem switchItemWithText:NSLocalizedString(@"SETTINGS_LINK_PREVIEWS",
+                                                     @"Setting for enabling & disabling link previews.")
+                                            isOn:SSKPreferences.areLinkPreviewsEnabled
+                                          target:weakSelf
+                                        selector:@selector(didToggleLinkPreviewsEnabled:)]];
+    linkPreviewsSection.headerTitle = NSLocalizedString(
+        @"SETTINGS_LINK_PREVIEWS_HEADER", @"Header for setting for enabling & disabling link previews.");
+    linkPreviewsSection.footerTitle = NSLocalizedString(
+        @"SETTINGS_LINK_PREVIEWS_FOOTER", @"Footer for setting for enabling & disabling link previews.");
+    [contents addSection:linkPreviewsSection];
 
     self.contents = contents;
 }
@@ -233,40 +363,47 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)didToggleScreenSecuritySwitch:(UISwitch *)sender
 {
     BOOL enabled = sender.isOn;
-    DDLogInfo(@"%@ toggled screen security: %@", self.logTag, enabled ? @"ON" : @"OFF");
-    [Environment.preferences setScreenSecurity:enabled];
+    OWSLogInfo(@"toggled screen security: %@", enabled ? @"ON" : @"OFF");
+    [self.preferences setScreenSecurity:enabled];
 }
 
 - (void)didToggleReadReceiptsSwitch:(UISwitch *)sender
 {
     BOOL enabled = sender.isOn;
-    DDLogInfo(@"%@ toggled areReadReceiptsEnabled: %@", self.logTag, enabled ? @"ON" : @"OFF");
-    [OWSReadReceiptManager.sharedManager setAreReadReceiptsEnabled:enabled];
+    OWSLogInfo(@"toggled areReadReceiptsEnabled: %@", enabled ? @"ON" : @"OFF");
+    [self.readReceiptManager setAreReadReceiptsEnabled:enabled];
+}
+
+- (void)didToggleTypingIndicatorsSwitch:(UISwitch *)sender
+{
+    BOOL enabled = sender.isOn;
+    OWSLogInfo(@"toggled areTypingIndicatorsEnabled: %@", enabled ? @"ON" : @"OFF");
+    [self.typingIndicators setTypingIndicatorsEnabledWithValue:enabled];
 }
 
 - (void)didToggleCallsHideIPAddressSwitch:(UISwitch *)sender
 {
     BOOL enabled = sender.isOn;
-    DDLogInfo(@"%@ toggled callsHideIPAddress: %@", self.logTag, enabled ? @"ON" : @"OFF");
-    [Environment.preferences setDoCallsHideIPAddress:enabled];
+    OWSLogInfo(@"toggled callsHideIPAddress: %@", enabled ? @"ON" : @"OFF");
+    [self.preferences setDoCallsHideIPAddress:enabled];
 }
 
 - (void)didToggleEnableSystemCallLogSwitch:(UISwitch *)sender
 {
-    DDLogInfo(@"%@ user toggled call kit preference: %@", self.logTag, (sender.isOn ? @"ON" : @"OFF"));
-    [[Environment current].preferences setIsSystemCallLogEnabled:sender.isOn];
+    OWSLogInfo(@"user toggled call kit preference: %@", (sender.isOn ? @"ON" : @"OFF"));
+    [self.preferences setIsSystemCallLogEnabled:sender.isOn];
 
     // rebuild callUIAdapter since CallKit configuration changed.
-    [SignalApp.sharedApp.callService createCallUIAdapter];
+    [AppEnvironment.shared.callService createCallUIAdapter];
 }
 
 - (void)didToggleEnableCallKitSwitch:(UISwitch *)sender
 {
-    DDLogInfo(@"%@ user toggled call kit preference: %@", self.logTag, (sender.isOn ? @"ON" : @"OFF"));
-    [[Environment current].preferences setIsCallKitEnabled:sender.isOn];
+    OWSLogInfo(@"user toggled call kit preference: %@", (sender.isOn ? @"ON" : @"OFF"));
+    [self.preferences setIsCallKitEnabled:sender.isOn];
 
     // rebuild callUIAdapter since CallKit vs not changed.
-    [SignalApp.sharedApp.callService createCallUIAdapter];
+    [AppEnvironment.shared.callService createCallUIAdapter];
 
     // Show/Hide dependent switch: CallKit privacy
     [self updateTableContents];
@@ -274,16 +411,34 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)didToggleEnableCallKitPrivacySwitch:(UISwitch *)sender
 {
-    DDLogInfo(@"%@ user toggled call kit privacy preference: %@", self.logTag, (sender.isOn ? @"ON" : @"OFF"));
-    [[Environment current].preferences setIsCallKitPrivacyEnabled:!sender.isOn];
+    OWSLogInfo(@"user toggled call kit privacy preference: %@", (sender.isOn ? @"ON" : @"OFF"));
+    [self.preferences setIsCallKitPrivacyEnabled:!sender.isOn];
 
     // rebuild callUIAdapter since CallKit configuration changed.
-    [SignalApp.sharedApp.callService createCallUIAdapter];
+    [AppEnvironment.shared.callService createCallUIAdapter];
+}
+
+- (void)didToggleUDUnrestrictedAccessSwitch:(UISwitch *)sender
+{
+    OWSLogInfo(@"toggled to: %@", (sender.isOn ? @"ON" : @"OFF"));
+    [self.udManager setShouldAllowUnrestrictedAccessLocal:sender.isOn];
+}
+
+- (void)didToggleUDShowIndicatorsSwitch:(UISwitch *)sender
+{
+    OWSLogInfo(@"toggled to: %@", (sender.isOn ? @"ON" : @"OFF"));
+    [self.preferences setShouldShowUnidentifiedDeliveryIndicators:sender.isOn];
+}
+
+- (void)didToggleLinkPreviewsEnabled:(UISwitch *)sender
+{
+    OWSLogInfo(@"toggled to: %@", (sender.isOn ? @"ON" : @"OFF"));
+    [SSKPreferences setAreLinkPreviewsEnabledWithValue:sender.isOn];
 }
 
 - (void)show2FASettings
 {
-    DDLogInfo(@"%@ %s", self.logTag, __PRETTY_FUNCTION__);
+    OWSLogInfo(@"");
 
     OWS2FASettingsViewController *vc = [OWS2FASettingsViewController new];
     vc.mode = OWS2FASettingsMode_Status;
@@ -295,25 +450,25 @@ NS_ASSUME_NONNULL_BEGIN
     BOOL shouldBeEnabled = sender.isOn;
 
     if (shouldBeEnabled == OWSScreenLock.sharedManager.isScreenLockEnabled) {
-        DDLogError(@"%@ ignoring redundant screen lock.", self.logTag);
+        OWSLogError(@"ignoring redundant screen lock.");
         return;
     }
 
-    DDLogInfo(@"%@ trying to set is screen lock enabled: %@", self.logTag, @(shouldBeEnabled));
+    OWSLogInfo(@"trying to set is screen lock enabled: %@", @(shouldBeEnabled));
 
     [OWSScreenLock.sharedManager setIsScreenLockEnabled:shouldBeEnabled];
 }
 
 - (void)screenLockDidChange:(NSNotification *)notification
 {
-    DDLogInfo(@"%@ %s", self.logTag, __PRETTY_FUNCTION__);
+    OWSLogInfo(@"");
 
     [self updateTableContents];
 }
 
 - (void)showScreenLockTimeoutUI
 {
-    DDLogInfo(@"%@ %s", self.logTag, __PRETTY_FUNCTION__);
+    OWSLogInfo(@"");
 
     UIAlertController *controller = [UIAlertController
         alertControllerWithTitle:NSLocalizedString(@"SETTINGS_SCREEN_LOCK_ACTIVITY_TIMEOUT",

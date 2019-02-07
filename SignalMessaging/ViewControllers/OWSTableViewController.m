@@ -1,9 +1,10 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 #import "OWSTableViewController.h"
 #import "OWSNavigationController.h"
+#import "Theme.h"
 #import "UIColor+OWS.h"
 #import "UIFont+OWS.h"
 #import "UIView+OWS.h"
@@ -32,7 +33,7 @@ const CGFloat kOWSTable_DefaultCellHeight = 45.f;
 
 - (void)addSection:(OWSTableSection *)section
 {
-    OWSAssert(section);
+    OWSAssertDebug(section);
 
     [_sections addObject:section];
 }
@@ -69,7 +70,7 @@ const CGFloat kOWSTable_DefaultCellHeight = 45.f;
 
 - (void)addItem:(OWSTableItem *)item
 {
-    OWSAssert(item);
+    OWSAssertDebug(item);
 
     [_items addObject:item];
 }
@@ -111,15 +112,16 @@ const CGFloat kOWSTable_DefaultCellHeight = 45.f;
     cell.contentView.backgroundColor = [Theme backgroundColor];
     cell.textLabel.font = [UIFont ows_regularFontWithSize:18.f];
     cell.textLabel.textColor = [Theme primaryColor];
+    cell.detailTextLabel.textColor = [Theme secondaryColor];
 
     UIView *selectedBackgroundView = [UIView new];
-    selectedBackgroundView.backgroundColor = [Theme.cellSelectedColor colorWithAlphaComponent:0.08];
+    selectedBackgroundView.backgroundColor = Theme.cellSelectedColor;
     cell.selectedBackgroundView = selectedBackgroundView;
 }
 
 + (OWSTableItem *)itemWithTitle:(NSString *)title actionBlock:(nullable OWSTableActionBlock)actionBlock
 {
-    OWSAssert(title.length > 0);
+    OWSAssertDebug(title.length > 0);
 
     OWSTableItem *item = [OWSTableItem new];
     item.actionBlock = actionBlock;
@@ -131,8 +133,8 @@ const CGFloat kOWSTable_DefaultCellHeight = 45.f;
                      customRowHeight:(CGFloat)customRowHeight
                          actionBlock:(nullable OWSTableActionBlock)actionBlock
 {
-    OWSAssert(customCell);
-    OWSAssert(customRowHeight > 0 || customRowHeight == UITableViewAutomaticDimension);
+    OWSAssertDebug(customCell);
+    OWSAssertDebug(customRowHeight > 0 || customRowHeight == UITableViewAutomaticDimension);
 
     OWSTableItem *item = [OWSTableItem new];
     item.actionBlock = actionBlock;
@@ -145,7 +147,7 @@ const CGFloat kOWSTable_DefaultCellHeight = 45.f;
                           customRowHeight:(CGFloat)customRowHeight
                               actionBlock:(nullable OWSTableActionBlock)actionBlock
 {
-    OWSAssert(customRowHeight > 0 || customRowHeight == UITableViewAutomaticDimension);
+    OWSAssertDebug(customRowHeight > 0 || customRowHeight == UITableViewAutomaticDimension);
 
     OWSTableItem *item = [self itemWithCustomCellBlock:customCellBlock actionBlock:actionBlock];
     item.customRowHeight = @(customRowHeight);
@@ -155,7 +157,7 @@ const CGFloat kOWSTable_DefaultCellHeight = 45.f;
 + (OWSTableItem *)itemWithCustomCellBlock:(OWSTableCustomCellBlock)customCellBlock
                               actionBlock:(nullable OWSTableActionBlock)actionBlock
 {
-    OWSAssert(customCellBlock);
+    OWSAssertDebug(customCellBlock);
 
     OWSTableItem *item = [OWSTableItem new];
     item.actionBlock = actionBlock;
@@ -177,8 +179,8 @@ const CGFloat kOWSTable_DefaultCellHeight = 45.f;
                    actionBlock:(nullable OWSTableActionBlock)actionBlock
                  accessoryType:(UITableViewCellAccessoryType)accessoryType
 {
-    OWSAssert(text.length > 0);
-    OWSAssert(actionBlock);
+    OWSAssertDebug(text.length > 0);
+    OWSAssertDebug(actionBlock);
 
     OWSTableItem *item = [OWSTableItem new];
     item.actionBlock = actionBlock;
@@ -195,7 +197,7 @@ const CGFloat kOWSTable_DefaultCellHeight = 45.f;
                          customRowHeight:(CGFloat)customRowHeight
                              actionBlock:(nullable OWSTableActionBlock)actionBlock
 {
-    OWSAssert(customRowHeight > 0 || customRowHeight == UITableViewAutomaticDimension);
+    OWSAssertDebug(customRowHeight > 0 || customRowHeight == UITableViewAutomaticDimension);
 
     OWSTableItem *item = [self disclosureItemWithText:text actionBlock:actionBlock];
     item.customRowHeight = @(customRowHeight);
@@ -206,8 +208,8 @@ const CGFloat kOWSTable_DefaultCellHeight = 45.f;
                               detailText:(NSString *)detailText
                              actionBlock:(nullable OWSTableActionBlock)actionBlock
 {
-    OWSAssert(text.length > 0);
-    OWSAssert(actionBlock);
+    OWSAssertDebug(text.length > 0);
+    OWSAssertDebug(actionBlock);
 
     OWSTableItem *item = [OWSTableItem new];
     item.actionBlock = actionBlock;
@@ -225,15 +227,15 @@ const CGFloat kOWSTable_DefaultCellHeight = 45.f;
 
 + (OWSTableItem *)subPageItemWithText:(NSString *)text actionBlock:(nullable OWSTableSubPageBlock)actionBlock
 {
-    OWSAssert(text.length > 0);
-    OWSAssert(actionBlock);
+    OWSAssertDebug(text.length > 0);
+    OWSAssertDebug(actionBlock);
 
     OWSTableItem *item = [OWSTableItem new];
     __weak OWSTableItem *weakItem = item;
     item.actionBlock = ^{
         OWSTableItem *strongItem = weakItem;
-        OWSAssert(strongItem);
-        OWSAssert(strongItem.tableViewController);
+        OWSAssertDebug(strongItem);
+        OWSAssertDebug(strongItem.tableViewController);
 
         if (actionBlock) {
             actionBlock(strongItem.tableViewController);
@@ -252,7 +254,7 @@ const CGFloat kOWSTable_DefaultCellHeight = 45.f;
                       customRowHeight:(CGFloat)customRowHeight
                           actionBlock:(nullable OWSTableSubPageBlock)actionBlock
 {
-    OWSAssert(customRowHeight > 0 || customRowHeight == UITableViewAutomaticDimension);
+    OWSAssertDebug(customRowHeight > 0 || customRowHeight == UITableViewAutomaticDimension);
 
     OWSTableItem *item = [self subPageItemWithText:text actionBlock:actionBlock];
     item.customRowHeight = @(customRowHeight);
@@ -261,8 +263,8 @@ const CGFloat kOWSTable_DefaultCellHeight = 45.f;
 
 + (OWSTableItem *)actionItemWithText:(NSString *)text actionBlock:(nullable OWSTableActionBlock)actionBlock
 {
-    OWSAssert(text.length > 0);
-    OWSAssert(actionBlock);
+    OWSAssertDebug(text.length > 0);
+    OWSAssertDebug(actionBlock);
 
     OWSTableItem *item = [OWSTableItem new];
     item.actionBlock = actionBlock;
@@ -276,7 +278,7 @@ const CGFloat kOWSTable_DefaultCellHeight = 45.f;
 
 + (OWSTableItem *)softCenterLabelItemWithText:(NSString *)text
 {
-    OWSAssert(text.length > 0);
+    OWSAssertDebug(text.length > 0);
 
     OWSTableItem *item = [OWSTableItem new];
     item.customCellBlock = ^{
@@ -288,7 +290,7 @@ const CGFloat kOWSTable_DefaultCellHeight = 45.f;
         cell.textLabel.font = [UIFont ows_regularFontWithSize:15.f];
         // Soft color.
         // TODO: Theme, review with design.
-        cell.textLabel.textColor = [UIColor colorWithWhite:0.5f alpha:1.f];
+        cell.textLabel.textColor = Theme.middleGrayColor;
         // Centered.
         cell.textLabel.textAlignment = NSTextAlignmentCenter;
         cell.userInteractionEnabled = NO;
@@ -299,7 +301,7 @@ const CGFloat kOWSTable_DefaultCellHeight = 45.f;
 
 + (OWSTableItem *)softCenterLabelItemWithText:(NSString *)text customRowHeight:(CGFloat)customRowHeight
 {
-    OWSAssert(customRowHeight > 0 || customRowHeight == UITableViewAutomaticDimension);
+    OWSAssertDebug(customRowHeight > 0 || customRowHeight == UITableViewAutomaticDimension);
 
     OWSTableItem *item = [self softCenterLabelItemWithText:text];
     item.customRowHeight = @(customRowHeight);
@@ -308,7 +310,7 @@ const CGFloat kOWSTable_DefaultCellHeight = 45.f;
 
 + (OWSTableItem *)labelItemWithText:(NSString *)text
 {
-    OWSAssert(text.length > 0);
+    OWSAssertDebug(text.length > 0);
 
     OWSTableItem *item = [OWSTableItem new];
     item.customCellBlock = ^{
@@ -322,8 +324,8 @@ const CGFloat kOWSTable_DefaultCellHeight = 45.f;
 
 + (OWSTableItem *)labelItemWithText:(NSString *)text accessoryText:(NSString *)accessoryText
 {
-    OWSAssert(text.length > 0);
-    OWSAssert(accessoryText.length > 0);
+    OWSAssertDebug(text.length > 0);
+    OWSAssertDebug(accessoryText.length > 0);
 
     OWSTableItem *item = [OWSTableItem new];
     item.customCellBlock = ^{
@@ -344,6 +346,26 @@ const CGFloat kOWSTable_DefaultCellHeight = 45.f;
     return item;
 }
 
++ (OWSTableItem *)longDisclosureItemWithText:(NSString *)text actionBlock:(nullable OWSTableActionBlock)actionBlock
+{
+    OWSAssertDebug(text.length > 0);
+
+    OWSTableItem *item = [OWSTableItem new];
+    item.customCellBlock = ^{
+        UITableViewCell *cell = [OWSTableItem newCell];
+
+        cell.textLabel.text = text;
+        cell.textLabel.numberOfLines = 0;
+        cell.textLabel.lineBreakMode = NSLineBreakByWordWrapping;
+        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+
+        return cell;
+    };
+    item.customRowHeight = @(UITableViewAutomaticDimension);
+    item.actionBlock = actionBlock;
+    return item;
+}
+
 + (OWSTableItem *)switchItemWithText:(NSString *)text isOn:(BOOL)isOn target:(id)target selector:(SEL)selector
 {
     return [self switchItemWithText:text isOn:isOn isEnabled:YES target:target selector:selector];
@@ -355,9 +377,9 @@ const CGFloat kOWSTable_DefaultCellHeight = 45.f;
                               target:(id)target
                             selector:(SEL)selector
 {
-    OWSAssert(text.length > 0);
-    OWSAssert(target);
-    OWSAssert(selector);
+    OWSAssertDebug(text.length > 0);
+    OWSAssertDebug(target);
+    OWSAssertDebug(selector);
 
     OWSTableItem *item = [OWSTableItem new];
     __weak id weakTarget = target;
@@ -451,7 +473,7 @@ NSString *const kOWSTableCellIdentifier = @"kOWSTableCellIdentifier";
 {
     [super loadView];
 
-    OWSAssert(self.contents);
+    OWSAssertDebug(self.contents);
 
     if (self.contents.title.length > 0) {
         self.title = self.contents.title;
@@ -470,7 +492,8 @@ NSString *const kOWSTableCellIdentifier = @"kOWSTableCellIdentifier";
         // won't adjust our content insets.
         [self.tableView autoPinToTopLayoutGuideOfViewController:self withInset:0];
         [self.tableView autoPinToBottomLayoutGuideOfViewController:self withInset:0];
-        [self.tableView autoPinWidthToSuperview];
+        [self.tableView autoPinEdgeToSuperviewSafeArea:ALEdgeLeading];
+        [self.tableView autoPinEdgeToSuperviewSafeArea:ALEdgeTrailing];
 
         // We don't need a top or bottom insets, since we pin to the top and bottom layout guides.
         self.automaticallyAdjustsScrollViewInsets = NO;
@@ -502,8 +525,8 @@ NSString *const kOWSTableCellIdentifier = @"kOWSTableCellIdentifier";
 
 - (OWSTableSection *)sectionForIndex:(NSInteger)sectionIndex
 {
-    OWSAssert(self.contents);
-    OWSAssert(sectionIndex >= 0 && sectionIndex < (NSInteger)self.contents.sections.count);
+    OWSAssertDebug(self.contents);
+    OWSAssertDebug(sectionIndex >= 0 && sectionIndex < (NSInteger)self.contents.sections.count);
 
     OWSTableSection *section = self.contents.sections[(NSUInteger)sectionIndex];
     return section;
@@ -511,11 +534,11 @@ NSString *const kOWSTableCellIdentifier = @"kOWSTableCellIdentifier";
 
 - (OWSTableItem *)itemForIndexPath:(NSIndexPath *)indexPath
 {
-    OWSAssert(self.contents);
-    OWSAssert(indexPath.section >= 0 && indexPath.section < (NSInteger)self.contents.sections.count);
+    OWSAssertDebug(self.contents);
+    OWSAssertDebug(indexPath.section >= 0 && indexPath.section < (NSInteger)self.contents.sections.count);
 
     OWSTableSection *section = self.contents.sections[(NSUInteger)indexPath.section];
-    OWSAssert(indexPath.item >= 0 && indexPath.item < (NSInteger)section.items.count);
+    OWSAssertDebug(indexPath.item >= 0 && indexPath.item < (NSInteger)section.items.count);
     OWSTableItem *item = section.items[(NSUInteger)indexPath.item];
 
     return item;
@@ -523,7 +546,7 @@ NSString *const kOWSTableCellIdentifier = @"kOWSTableCellIdentifier";
 
 - (void)setContents:(OWSTableContents *)contents
 {
-    OWSAssert(contents);
+    OWSAssertDebug(contents);
     OWSAssertIsOnMainThread();
 
     _contents = contents;
@@ -535,14 +558,14 @@ NSString *const kOWSTableCellIdentifier = @"kOWSTableCellIdentifier";
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView
 {
-    OWSAssert(self.contents);
+    OWSAssertDebug(self.contents);
     return (NSInteger)self.contents.sections.count;
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)sectionIndex
 {
     OWSTableSection *section = [self sectionForIndex:sectionIndex];
-    OWSAssert(section.items);
+    OWSAssertDebug(section.items);
     return (NSInteger)section.items.count;
 }
 
@@ -570,7 +593,8 @@ NSString *const kOWSTableCellIdentifier = @"kOWSTableCellIdentifier";
     }
 
     UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:kOWSTableCellIdentifier];
-    OWSAssert(cell);
+    OWSAssertDebug(cell);
+    [OWSTableItem configureCell:cell];
 
     cell.textLabel.text = item.title;
 
@@ -603,12 +627,12 @@ NSString *const kOWSTableCellIdentifier = @"kOWSTableCellIdentifier";
     OWSTableSection *_Nullable section = [self sectionForIndex:sectionIndex];
 
     if (!section) {
-        OWSFail(@"Section index out of bounds.");
+        OWSFailDebug(@"Section index out of bounds.");
         return 0;
     }
 
     if (section.customHeaderHeight) {
-        OWSAssert([section.customHeaderHeight floatValue] > 0);
+        OWSAssertDebug([section.customHeaderHeight floatValue] > 0);
         return [section.customHeaderHeight floatValue];
     } else if (section.headerTitle.length > 0) {
         return UITableViewAutomaticDimension;
@@ -621,12 +645,12 @@ NSString *const kOWSTableCellIdentifier = @"kOWSTableCellIdentifier";
 {
     OWSTableSection *_Nullable section = [self sectionForIndex:sectionIndex];
     if (!section) {
-        OWSFail(@"Section index out of bounds.");
+        OWSFailDebug(@"Section index out of bounds.");
         return 0;
     }
 
     if (section.customFooterHeight) {
-        OWSAssert([section.customFooterHeight floatValue] > 0);
+        OWSAssertDebug([section.customFooterHeight floatValue] > 0);
         return [section.customFooterHeight floatValue];
     } else if (section.footerTitle.length > 0) {
         return UITableViewAutomaticDimension;
@@ -680,7 +704,7 @@ NSString *const kOWSTableCellIdentifier = @"kOWSTableCellIdentifier";
 
 - (void)presentFromViewController:(UIViewController *)fromViewController
 {
-    OWSAssert(fromViewController);
+    OWSAssertDebug(fromViewController);
 
     OWSNavigationController *navigationController = [[OWSNavigationController alloc] initWithRootViewController:self];
     self.navigationItem.leftBarButtonItem =
@@ -705,7 +729,7 @@ NSString *const kOWSTableCellIdentifier = @"kOWSTableCellIdentifier";
 
 #pragma mark - Theme
 
-- (void)themeDidChange:(id)notification
+- (void)themeDidChange:(NSNotification *)notification
 {
     OWSAssertIsOnMainThread();
 
@@ -719,6 +743,7 @@ NSString *const kOWSTableCellIdentifier = @"kOWSTableCellIdentifier";
 
     self.view.backgroundColor = Theme.backgroundColor;
     self.tableView.backgroundColor = Theme.backgroundColor;
+    self.tableView.separatorColor = Theme.cellSeparatorColor;
 }
 
 @end

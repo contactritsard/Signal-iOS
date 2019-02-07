@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 #import "OWSViewController.h"
@@ -7,6 +7,17 @@
 #import <SignalMessaging/Theme.h>
 
 NS_ASSUME_NONNULL_BEGIN
+
+BOOL IsLandscapeOrientationEnabled(void)
+{
+    return YES;
+}
+
+UIInterfaceOrientationMask DefaultUIInterfaceOrientationMask(void)
+{
+    return (IsLandscapeOrientationEnabled() ? UIInterfaceOrientationMaskAllButUpsideDown
+                                            : UIInterfaceOrientationMaskPortrait);
+}
 
 @interface OWSViewController ()
 
@@ -22,7 +33,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)dealloc
 {
     // Surface memory leaks by logging the deallocation of view controllers.
-    DDLogVerbose(@"Dealloc: %@", self.class);
+    OWSLogVerbose(@"Dealloc: %@", self.class);
 
     [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
@@ -62,10 +73,10 @@ NS_ASSUME_NONNULL_BEGIN
     }
 }
 
-- (void)autoPinViewToBottomOfViewControllerOrKeyboard:(UIView *)view
+- (void)autoPinViewToBottomOfViewControllerOrKeyboard:(UIView *)view avoidNotch:(BOOL)avoidNotch
 {
-    OWSAssert(view);
-    OWSAssert(!self.bottomLayoutConstraint);
+    OWSAssertDebug(view);
+    OWSAssertDebug(!self.bottomLayoutConstraint);
 
     [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(keyboardWillShow:)
@@ -93,7 +104,11 @@ NS_ASSUME_NONNULL_BEGIN
                                                object:nil];
 
     self.bottomLayoutView = view;
-    self.bottomLayoutConstraint = [view autoPinEdge:ALEdgeBottom toEdge:ALEdgeBottom ofView:self.view];
+    if (avoidNotch) {
+        self.bottomLayoutConstraint = [view autoPinToBottomLayoutGuideOfViewController:self withInset:0.f];
+    } else {
+        self.bottomLayoutConstraint = [view autoPinEdge:ALEdgeBottom toEdge:ALEdgeBottom ofView:self.view];
+    }
 }
 
 - (void)observeActivation
@@ -111,35 +126,39 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)keyboardWillShow:(NSNotification *)notification
 {
-    [self handleKeyboardNotification:notification];
+    [self handleKeyboardNotificationBase:notification];
 }
 
 - (void)keyboardDidShow:(NSNotification *)notification
 {
-    [self handleKeyboardNotification:notification];
+    [self handleKeyboardNotificationBase:notification];
 }
 
 - (void)keyboardWillHide:(NSNotification *)notification
 {
-    [self handleKeyboardNotification:notification];
+    [self handleKeyboardNotificationBase:notification];
 }
 
 - (void)keyboardDidHide:(NSNotification *)notification
 {
-    [self handleKeyboardNotification:notification];
+    [self handleKeyboardNotificationBase:notification];
 }
 
 - (void)keyboardWillChangeFrame:(NSNotification *)notification
 {
-    [self handleKeyboardNotification:notification];
+    [self handleKeyboardNotificationBase:notification];
 }
 
 - (void)keyboardDidChangeFrame:(NSNotification *)notification
 {
-    [self handleKeyboardNotification:notification];
+    [self handleKeyboardNotificationBase:notification];
 }
 
-- (void)handleKeyboardNotification:(NSNotification *)notification
+// We use the name `handleKeyboardNotificationBase` instead of
+// `handleKeyboardNotification` to avoid accidentally
+// calling similarly methods with that name in subclasses,
+// e.g. ConversationViewController.
+- (void)handleKeyboardNotificationBase:(NSNotification *)notification
 {
     OWSAssertIsOnMainThread();
 
@@ -151,7 +170,7 @@ NS_ASSUME_NONNULL_BEGIN
 
     NSValue *_Nullable keyboardEndFrameValue = userInfo[UIKeyboardFrameEndUserInfoKey];
     if (!keyboardEndFrameValue) {
-        OWSFail(@"%@ Missing keyboard end frame", self.logTag);
+        OWSFailDebug(@"Missing keyboard end frame");
         return;
     }
 
@@ -171,6 +190,13 @@ NS_ASSUME_NONNULL_BEGIN
     // automatically animated.
     self.bottomLayoutConstraint.constant = offset;
     [self.bottomLayoutView.superview layoutIfNeeded];
+}
+
+#pragma mark - Orientation
+
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations
+{
+    return DefaultUIInterfaceOrientationMask();
 }
 
 @end

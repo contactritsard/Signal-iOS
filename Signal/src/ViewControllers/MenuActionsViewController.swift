@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 import Foundation
@@ -36,7 +36,7 @@ class MenuActionsViewController: UIViewController, MenuActionSheetDelegate {
     private let actionSheetView: MenuActionSheetView
 
     deinit {
-        Logger.verbose("\(logTag) in \(#function)")
+        Logger.verbose("")
         assert(didInformDelegateOfDismissalAnimation)
         assert(didInformDelegateThatDisappearenceCompleted)
     }
@@ -52,7 +52,7 @@ class MenuActionsViewController: UIViewController, MenuActionSheetDelegate {
     }
 
     required init?(coder aDecoder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+        notImplemented()
     }
 
     // MARK: View LifeCycle
@@ -71,10 +71,6 @@ class MenuActionsViewController: UIViewController, MenuActionSheetDelegate {
 
         let tapGesture = UITapGestureRecognizer(target: self, action: #selector(didTapBackground))
         self.view.addGestureRecognizer(tapGesture)
-
-        let swipeGesture = UISwipeGestureRecognizer(target: self, action: #selector(didSwipeBackground))
-        swipeGesture.direction = .down
-        self.view.addGestureRecognizer(swipeGesture)
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -84,7 +80,7 @@ class MenuActionsViewController: UIViewController, MenuActionSheetDelegate {
     }
 
     override func viewDidDisappear(_ animated: Bool) {
-        Logger.debug("\(logTag) in \(#function)")
+        Logger.debug("")
         super.viewDidDisappear(animated)
 
         // When the user has manually dismissed the menu, we do a nice animation
@@ -94,6 +90,12 @@ class MenuActionsViewController: UIViewController, MenuActionSheetDelegate {
         ensureDelegateIsInformedThatDisappearenceCompleted()
     }
 
+    // MARK: Orientation
+
+    override public var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+        return DefaultUIInterfaceOrientationMask()
+    }
+
     // MARK: Present / Dismiss animations
 
     var presentationFocusOffset: CGFloat?
@@ -101,13 +103,13 @@ class MenuActionsViewController: UIViewController, MenuActionSheetDelegate {
 
     private func addSnapshotFocusedView() -> UIView? {
         guard let snapshotView = self.focusedView.snapshotView(afterScreenUpdates: false) else {
-            owsFail("\(self.logTag) in \(#function) snapshotView was unexpectedly nil")
+            owsFailDebug("snapshotView was unexpectedly nil")
             return nil
         }
         view.addSubview(snapshotView)
 
         guard let focusedViewSuperview = focusedView.superview else {
-            owsFail("\(self.logTag) in \(#function) focusedViewSuperview was unexpectedly nil")
+            owsFailDebug("focusedViewSuperview was unexpectedly nil")
             return nil
         }
 
@@ -119,18 +121,18 @@ class MenuActionsViewController: UIViewController, MenuActionSheetDelegate {
 
     private func animatePresentation() {
         guard let actionSheetViewVerticalConstraint = self.actionSheetViewVerticalConstraint else {
-            owsFail("\(self.logTag) in \(#function) actionSheetViewVerticalConstraint was unexpectedly nil")
+            owsFailDebug("actionSheetViewVerticalConstraint was unexpectedly nil")
             return
         }
 
         guard let focusedViewSuperview = focusedView.superview else {
-            owsFail("\(self.logTag) in \(#function) focusedViewSuperview was unexpectedly nil")
+            owsFailDebug("focusedViewSuperview was unexpectedly nil")
             return
         }
 
         // darken background
         guard let snapshotView = addSnapshotFocusedView() else {
-            owsFail("\(self.logTag) in \(#function) snapshotView was unexpectedly nil")
+            owsFailDebug("snapshotView was unexpectedly nil")
             return
         }
 
@@ -139,7 +141,8 @@ class MenuActionsViewController: UIViewController, MenuActionSheetDelegate {
 
         let backgroundDuration: TimeInterval = 0.1
         UIView.animate(withDuration: backgroundDuration) {
-            self.view.backgroundColor = UIColor.black.withAlphaComponent(0.4)
+            let alpha: CGFloat = Theme.isDarkThemeEnabled ? 0.7 : 0.4
+            self.view.backgroundColor = UIColor.black.withAlphaComponent(alpha)
         }
 
         self.actionSheetView.superview?.layoutIfNeeded()
@@ -172,19 +175,19 @@ class MenuActionsViewController: UIViewController, MenuActionSheetDelegate {
 
     private func animateDismiss(action: MenuAction?) {
         guard let actionSheetViewVerticalConstraint = self.actionSheetViewVerticalConstraint else {
-            owsFail("\(self.logTag) in \(#function) actionSheetVerticalConstraint was unexpectedly nil")
+            owsFailDebug("actionSheetVerticalConstraint was unexpectedly nil")
             self.delegate?.menuActionsDidHide(self)
             return
         }
 
         guard let snapshotView = self.snapshotView else {
-            owsFail("\(self.logTag) in \(#function) snapshotView was unexpectedly nil")
+            owsFailDebug("snapshotView was unexpectedly nil")
             self.delegate?.menuActionsDidHide(self)
             return
         }
 
         guard let presentationFocusOffset = self.presentationFocusOffset else {
-            owsFail("\(self.logTag) in \(#function) presentationFocusOffset was unexpectedly nil")
+            owsFailDebug("presentationFocusOffset was unexpectedly nil")
             self.delegate?.menuActionsDidHide(self)
             return
         }
@@ -217,7 +220,7 @@ class MenuActionsViewController: UIViewController, MenuActionSheetDelegate {
     var didInformDelegateThatDisappearenceCompleted = false
     func ensureDelegateIsInformedThatDisappearenceCompleted() {
         guard !didInformDelegateThatDisappearenceCompleted else {
-            Logger.debug("\(logTag) in \(#function) ignoring redundant 'disappeared' notification")
+            Logger.debug("ignoring redundant 'disappeared' notification")
             return
         }
         didInformDelegateThatDisappearenceCompleted = true
@@ -228,13 +231,13 @@ class MenuActionsViewController: UIViewController, MenuActionSheetDelegate {
     var didInformDelegateOfDismissalAnimation = false
     func ensureDelegateIsInformedOfDismissalAnimation() {
         guard !didInformDelegateOfDismissalAnimation else {
-            Logger.debug("\(logTag) in \(#function) ignoring redundant 'dismissal' notification")
+            Logger.debug("ignoring redundant 'dismissal' notification")
             return
         }
         didInformDelegateOfDismissalAnimation = true
 
         guard let presentationFocusOffset = self.presentationFocusOffset else {
-            owsFail("\(self.logTag) in \(#function) presentationFocusOffset was unexpectedly nil")
+            owsFailDebug("presentationFocusOffset was unexpectedly nil")
             self.delegate?.menuActionsDidHide(self)
             return
         }
@@ -246,11 +249,6 @@ class MenuActionsViewController: UIViewController, MenuActionSheetDelegate {
 
     @objc
     func didTapBackground() {
-        animateDismiss(action: nil)
-    }
-
-    @objc
-    func didSwipeBackground(gesture: UISwipeGestureRecognizer) {
         animateDismiss(action: nil)
     }
 
@@ -269,6 +267,10 @@ class MenuActionSheetView: UIView, MenuActionViewDelegate {
 
     private let actionStackView: UIStackView
     private var actions: [MenuAction]
+    private var actionViews: [MenuActionView]
+    private var hapticFeedback: HapticFeedback
+    private var hasEverHighlightedAction = false
+
     weak var delegate: MenuActionSheetDelegate?
 
     override var bounds: CGRect {
@@ -288,29 +290,60 @@ class MenuActionSheetView: UIView, MenuActionViewDelegate {
         actionStackView.spacing = CGHairlineWidth()
 
         actions = []
+        actionViews = []
+        hapticFeedback = HapticFeedback()
 
         super.init(frame: frame)
 
-        backgroundColor = UIColor.ows_light10
+        backgroundColor = (Theme.isDarkThemeEnabled
+            ? UIColor.ows_gray90
+            : UIColor.ows_gray05)
         addSubview(actionStackView)
-        actionStackView.ows_autoPinToSuperviewEdges()
+        actionStackView.autoPinEdgesToSuperviewEdges()
 
         self.clipsToBounds = true
 
-        // Prevent panning from percolating to the superview, which would
-        // cause us to dismiss
-        let panGestureSink = UIPanGestureRecognizer(target: nil, action: nil)
-        self.addGestureRecognizer(panGestureSink)
+        let touchGesture = UILongPressGestureRecognizer(target: self, action: #selector(didTouch(gesture:)))
+        touchGesture.minimumPressDuration = 0.0
+        touchGesture.allowableMovement = CGFloat.greatestFiniteMagnitude
+        self.addGestureRecognizer(touchGesture)
     }
 
     required init?(coder aDecoder: NSCoder) {
-        fatalError("not implemented")
+        notImplemented()
+    }
+
+    @objc
+    public func didTouch(gesture: UIGestureRecognizer) {
+        switch gesture.state {
+        case .possible:
+            break
+        case .began:
+            let location = gesture.location(in: self)
+            highlightActionView(location: location, fromView: self)
+        case .changed:
+            let location = gesture.location(in: self)
+            highlightActionView(location: location, fromView: self)
+        case .ended:
+            Logger.debug("ended")
+            let location = gesture.location(in: self)
+            selectActionView(location: location, fromView: self)
+        case .cancelled:
+            Logger.debug("canceled")
+            unhighlightAllActionViews()
+        case .failed:
+            Logger.debug("failed")
+            unhighlightAllActionViews()
+        }
     }
 
     public func addAction(_ action: MenuAction) {
+        actions.append(action)
+
         let actionView = MenuActionView(action: action)
         actionView.delegate = self
-        actions.append(action)
+        actionViews.append(actionView)
+
         self.actionStackView.addArrangedSubview(actionView)
     }
 
@@ -329,6 +362,47 @@ class MenuActionSheetView: UIView, MenuActionViewDelegate {
         mask.path = path.cgPath
         self.layer.mask = mask
     }
+
+    private func unhighlightAllActionViews() {
+        for actionView in actionViews {
+            actionView.isHighlighted = false
+        }
+    }
+
+    private func actionView(touchedBy touchPoint: CGPoint, fromView: UIView) -> MenuActionView? {
+        for actionView in actionViews {
+            let convertedPoint = actionView.convert(touchPoint, from: fromView)
+            if actionView.point(inside: convertedPoint, with: nil) {
+                return actionView
+            }
+        }
+        return nil
+    }
+
+    private func highlightActionView(location: CGPoint, fromView: UIView) {
+        guard let touchedView = actionView(touchedBy: location, fromView: fromView) else {
+            unhighlightAllActionViews()
+            return
+        }
+
+        if hasEverHighlightedAction, !touchedView.isHighlighted {
+            self.hapticFeedback.selectionChanged()
+        }
+        touchedView.isHighlighted = true
+        hasEverHighlightedAction = true
+
+        self.actionViews.filter { $0 != touchedView }.forEach {  $0.isHighlighted = false }
+    }
+
+    private func selectActionView(location: CGPoint, fromView: UIView) {
+        guard let selectedView: MenuActionView = actionView(touchedBy: location, fromView: fromView) else {
+            unhighlightAllActionViews()
+            return
+        }
+        selectedView.isHighlighted = true
+        self.actionViews.filter { $0 != selectedView }.forEach {  $0.isHighlighted = false }
+        delegate?.actionSheet(self, didSelectAction: selectedView.action)
+    }
 }
 
 protocol MenuActionViewDelegate: class {
@@ -337,7 +411,7 @@ protocol MenuActionViewDelegate: class {
 
 class MenuActionView: UIButton {
     public weak var delegate: MenuActionViewDelegate?
-    private let action: MenuAction
+    public let action: MenuAction
 
     required init(action: MenuAction) {
         self.action = action
@@ -345,22 +419,31 @@ class MenuActionView: UIButton {
         super.init(frame: CGRect.zero)
 
         isUserInteractionEnabled = true
-        backgroundColor = .white
+        backgroundColor = defaultBackgroundColor
 
-        let imageView = UIImageView(image: action.image)
+        var image = action.image
+        if Theme.isDarkThemeEnabled {
+            image = image.withRenderingMode(.alwaysTemplate)
+        }
+        let imageView = UIImageView(image: image)
+        if Theme.isDarkThemeEnabled {
+            imageView.tintColor = UIColor.ows_gray25
+        }
         let imageWidth: CGFloat = 24
         imageView.autoSetDimensions(to: CGSize(width: imageWidth, height: imageWidth))
         imageView.isUserInteractionEnabled = false
 
         let titleLabel = UILabel()
         titleLabel.font = UIFont.ows_dynamicTypeBody
-        titleLabel.textColor = UIColor.ows_light90
+        titleLabel.textColor = Theme.primaryColor
         titleLabel.text = action.title
         titleLabel.isUserInteractionEnabled = false
 
         let subtitleLabel = UILabel()
         subtitleLabel.font = UIFont.ows_dynamicTypeSubheadline
-        subtitleLabel.textColor = UIColor.ows_light60
+        subtitleLabel.textColor = (Theme.isDarkThemeEnabled
+            ? UIColor.ows_gray25
+            : Theme.secondaryColor)
         subtitleLabel.text = action.subtitle
         subtitleLabel.isUserInteractionEnabled = false
 
@@ -378,25 +461,37 @@ class MenuActionView: UIButton {
         contentRow.isUserInteractionEnabled = false
 
         self.addSubview(contentRow)
-        contentRow.ows_autoPinToSuperviewMargins()
+        contentRow.autoPinEdgesToSuperviewMargins()
         contentRow.autoSetDimension(.height, toSize: 56, relation: .greaterThanOrEqual)
 
-        self.addTarget(self, action: #selector(didPress(sender:)), for: .touchUpInside)
+        self.isUserInteractionEnabled = false
+    }
+
+    private var defaultBackgroundColor: UIColor {
+        return (Theme.isDarkThemeEnabled
+            ? UIColor.ows_gray75
+            : UIColor.white)
+    }
+
+    private var highlightedBackgroundColor: UIColor {
+        return (Theme.isDarkThemeEnabled
+            ? UIColor.ows_gray75
+            : UIColor.ows_gray05)
     }
 
     override var isHighlighted: Bool {
         didSet {
-            self.backgroundColor = isHighlighted ? UIColor.ows_light10 : UIColor.white
+            self.backgroundColor = isHighlighted ? highlightedBackgroundColor : defaultBackgroundColor
         }
     }
 
     @objc
     func didPress(sender: Any) {
-        Logger.debug("\(logTag) in \(#function)")
+        Logger.debug("")
         self.delegate?.actionView(self, didSelectAction: action)
     }
 
     required init?(coder aDecoder: NSCoder) {
-        fatalError("not implemented")
+        notImplemented()
     }
 }

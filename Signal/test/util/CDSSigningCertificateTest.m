@@ -2,13 +2,11 @@
 //  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
 //
 
-#import "OWSSignalServiceProtos.pb.h"
+#import "SignalBaseTest.h"
+#import <SignalCoreKit/NSData+OWS.h>
 #import <SignalServiceKit/CDSSigningCertificate.h>
-#import <SignalServiceKit/NSData+Base64.h>
-#import <SignalServiceKit/NSData+OWS.h>
-#import <XCTest/XCTest.h>
 
-@interface CDSSigningCertificateTest : XCTestCase
+@interface CDSSigningCertificateTest : SignalBaseTest
 
 @end
 
@@ -19,15 +17,20 @@
 - (void)testParsing_good
 {
     NSString *pem = [self certificatesPem_good];
-    CDSSigningCertificate *_Nullable certificate = [CDSSigningCertificate parseCertificateFromPem:pem];
+    NSError *error;
+    CDSSigningCertificate *_Nullable certificate = [CDSSigningCertificate parseCertificateFromPem:pem error:&error];
     XCTAssertNotNil(certificate);
+    XCTAssertNil(error);
 }
 
 - (void)testParsing_bad
 {
     NSString *pem = [self certificatesPem_bad];
-
-    XCTAssertThrows([CDSSigningCertificate parseCertificateFromPem:pem]);
+    NSError *error;
+    CDSSigningCertificate *_Nullable certificate = [CDSSigningCertificate parseCertificateFromPem:pem error:&error];
+    XCTAssertNil(certificate);
+    XCTAssertNotNil(error);
+    XCTAssertEqual(error.code, CDSSigningCertificateError_InvalidDistinguishedName);
 }
 
 - (void)testVerification_good
@@ -35,9 +38,11 @@
     NSString *pem = [self certificatesPem_good];
     NSData *signature = [self signature_good];
     NSString *bodyString = [self bodyString_good];
-    
-    CDSSigningCertificate *_Nullable certificate = [CDSSigningCertificate parseCertificateFromPem:pem];
+
+    NSError *error;
+    CDSSigningCertificate *_Nullable certificate = [CDSSigningCertificate parseCertificateFromPem:pem error:&error];
     XCTAssertNotNil(certificate);
+    XCTAssertNil(error);
 
     BOOL result = [certificate verifySignatureOfBody:bodyString signature:signature];
     XCTAssertTrue(result);
@@ -48,11 +53,13 @@
     NSString *pem = [self certificatesPem_good];
     NSData *signature = [self signature_good];
     NSString *bodyString = [self bodyString_bad];
-    
-    CDSSigningCertificate *_Nullable certificate = [CDSSigningCertificate parseCertificateFromPem:pem];
-    XCTAssertNotNil(certificate);
 
-    XCTAssertThrows([certificate verifySignatureOfBody:bodyString signature:signature]);
+    NSError *error;
+    CDSSigningCertificate *_Nullable certificate = [CDSSigningCertificate parseCertificateFromPem:pem error:&error];
+    XCTAssertNotNil(certificate);
+    XCTAssertNil(error);
+
+    XCTAssertFalse([certificate verifySignatureOfBody:bodyString signature:signature]);
 }
 
 - (void)testVerification_badSignature
@@ -60,12 +67,16 @@
     NSString *pem = [self certificatesPem_good];
     NSData *signature = [self signature_bad];
     NSString *bodyString = [self bodyString_good];
-    
-    CDSSigningCertificate *_Nullable certificate = [CDSSigningCertificate parseCertificateFromPem:pem];
-    XCTAssertNotNil(certificate);
 
-    XCTAssertThrows([certificate verifySignatureOfBody:bodyString signature:signature]);
+    NSError *error;
+    CDSSigningCertificate *_Nullable certificate = [CDSSigningCertificate parseCertificateFromPem:pem error:&error];
+    XCTAssertNotNil(certificate);
+    XCTAssertNil(error);
+
+    XCTAssertFalse([certificate verifySignatureOfBody:bodyString signature:signature]);
 }
+
+#pragma mark - test values
 
 - (NSString *)certificatesPem_good {
     return @"-----BEGIN CERTIFICATE----- \

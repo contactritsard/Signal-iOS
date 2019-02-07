@@ -1,21 +1,27 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 #import "OWSSyncConfigurationMessage.h"
-#import "OWSSignalServiceProtos.pb.h"
+#import <SignalServiceKit/SignalServiceKit-Swift.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
 @interface OWSSyncConfigurationMessage ()
 
 @property (nonatomic, readonly) BOOL areReadReceiptsEnabled;
+@property (nonatomic, readonly) BOOL showUnidentifiedDeliveryIndicators;
+@property (nonatomic, readonly) BOOL showTypingIndicators;
+@property (nonatomic, readonly) BOOL sendLinkPreviews;
 
 @end
 
 @implementation OWSSyncConfigurationMessage
 
 - (instancetype)initWithReadReceiptsEnabled:(BOOL)areReadReceiptsEnabled
+         showUnidentifiedDeliveryIndicators:(BOOL)showUnidentifiedDeliveryIndicators
+                       showTypingIndicators:(BOOL)showTypingIndicators
+                           sendLinkPreviews:(BOOL)sendLinkPreviews
 {
     self = [super init];
     if (!self) {
@@ -23,6 +29,9 @@ NS_ASSUME_NONNULL_BEGIN
     }
 
     _areReadReceiptsEnabled = areReadReceiptsEnabled;
+    _showUnidentifiedDeliveryIndicators = showUnidentifiedDeliveryIndicators;
+    _showTypingIndicators = showTypingIndicators;
+    _sendLinkPreviews = sendLinkPreviews;
 
     return self;
 }
@@ -32,17 +41,23 @@ NS_ASSUME_NONNULL_BEGIN
     return [super initWithCoder:coder];
 }
 
-- (OWSSignalServiceProtosSyncMessageBuilder *)syncMessageBuilder
+- (nullable SSKProtoSyncMessageBuilder *)syncMessageBuilder
 {
-
-    OWSSignalServiceProtosSyncMessageConfigurationBuilder *configurationBuilder =
-        [OWSSignalServiceProtosSyncMessageConfigurationBuilder new];
+    SSKProtoSyncMessageConfigurationBuilder *configurationBuilder = [SSKProtoSyncMessageConfiguration builder];
     configurationBuilder.readReceipts = self.areReadReceiptsEnabled;
+    configurationBuilder.unidentifiedDeliveryIndicators = self.showUnidentifiedDeliveryIndicators;
+    configurationBuilder.typingIndicators = self.showTypingIndicators;
+    configurationBuilder.linkPreviews = self.sendLinkPreviews;
 
-    OWSSignalServiceProtosSyncMessageBuilder *builder = [OWSSignalServiceProtosSyncMessageBuilder new];
+    NSError *error;
+    SSKProtoSyncMessageConfiguration *_Nullable configurationProto = [configurationBuilder buildAndReturnError:&error];
+    if (error || !configurationProto) {
+        OWSFailDebug(@"could not build protobuf: %@", error);
+        return nil;
+    }
 
-    builder.configurationBuilder = configurationBuilder;
-
+    SSKProtoSyncMessageBuilder *builder = [SSKProtoSyncMessage builder];
+    builder.configuration = configurationProto;
     return builder;
 }
 

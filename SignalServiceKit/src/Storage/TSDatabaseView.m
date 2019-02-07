@@ -1,12 +1,12 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 #import "TSDatabaseView.h"
 #import "OWSDevice.h"
 #import "OWSReadTracking.h"
 #import "TSAttachment.h"
-#import "TSAttachmentStream.h"
+#import "TSAttachmentPointer.h"
 #import "TSIncomingMessage.h"
 #import "TSInvalidIdentityKeyErrorMessage.h"
 #import "TSOutgoingMessage.h"
@@ -14,6 +14,8 @@
 #import <YapDatabase/YapDatabaseAutoView.h>
 #import <YapDatabase/YapDatabaseCrossProcessNotification.h>
 #import <YapDatabase/YapDatabaseViewTypes.h>
+
+NS_ASSUME_NONNULL_BEGIN
 
 NSString *const TSInboxGroup = @"TSInboxGroup";
 NSString *const TSArchiveGroup = @"TSArchiveGroup";
@@ -24,7 +26,18 @@ NSString *const TSSecondaryDevicesGroup = @"TSSecondaryDevicesGroup";
 // YAPDB BUG: when changing from non-persistent to persistent view, we had to rename TSThreadDatabaseViewExtensionName
 // -> TSThreadDatabaseViewExtensionName2 to work around https://github.com/yapstudios/YapDatabase/issues/324
 NSString *const TSThreadDatabaseViewExtensionName = @"TSThreadDatabaseViewExtensionName2";
-NSString *const TSMessageDatabaseViewExtensionName = @"TSMessageDatabaseViewExtensionName";
+
+// We sort interactions by a monotonically increasing counter.
+//
+// Previously we sorted the interactions database by local timestamp, which was problematic if the local clock changed.
+// We need to maintain the legacy extension for purposes of migration.
+//
+// The "Legacy" sorting extension name constant has the same value as always, so that it won't need to be rebuilt, while
+// the "Modern" sorting extension name constant has the same symbol name that we've always used for sorting
+// interactions, so that the callsites won't need to change.
+NSString *const TSMessageDatabaseViewExtensionName = @"TSMessageDatabaseViewExtensionName_Monotonic";
+NSString *const TSMessageDatabaseViewExtensionName_Legacy = @"TSMessageDatabaseViewExtensionName";
+
 NSString *const TSThreadOutgoingMessageDatabaseViewExtensionName = @"TSThreadOutgoingMessageDatabaseViewExtensionName";
 NSString *const TSUnreadDatabaseViewExtensionName = @"TSUnreadDatabaseViewExtensionName";
 NSString *const TSUnseenDatabaseViewExtensionName = @"TSUnseenDatabaseViewExtensionName";
@@ -46,7 +59,7 @@ NSString *const TSLazyRestoreAttachmentsGroup = @"TSLazyRestoreAttachmentsGroup"
 
 + (void)registerCrossProcessNotifier:(OWSStorage *)storage
 {
-    OWSAssert(storage);
+    OWSAssertDebug(storage);
 
     // I don't think the identifier and name of this extension matter for our purposes,
     // so long as they don't conflict with any other extension names.
@@ -61,13 +74,13 @@ NSString *const TSLazyRestoreAttachmentsGroup = @"TSLazyRestoreAttachmentsGroup"
                                     storage:(OWSStorage *)storage
 {
     OWSAssertIsOnMainThread();
-    OWSAssert(viewName.length > 0);
-    OWSAssert((viewGrouping));
-    OWSAssert(storage);
+    OWSAssertDebug(viewName.length > 0);
+    OWSAssertDebug((viewGrouping));
+    OWSAssertDebug(storage);
 
     YapDatabaseView *existingView = [storage registeredExtension:viewName];
     if (existingView) {
-        OWSFail(@"Registered database view twice: %@", viewName);
+        OWSFailDebug(@"Registered database view twice: %@", viewName);
         return;
     }
 
@@ -100,7 +113,7 @@ NSString *const TSLazyRestoreAttachmentsGroup = @"TSLazyRestoreAttachmentsGroup"
 
     [self registerMessageDatabaseViewWithName:TSUnreadDatabaseViewExtensionName
                                  viewGrouping:viewGrouping
-                                      version:@"1"
+                                      version:@"2"
                                       storage:storage];
 }
 
@@ -119,7 +132,7 @@ NSString *const TSLazyRestoreAttachmentsGroup = @"TSLazyRestoreAttachmentsGroup"
 
     [self registerMessageDatabaseViewWithName:TSUnseenDatabaseViewExtensionName
                                  viewGrouping:viewGrouping
-                                      version:@"1"
+                                      version:@"2"
                                       storage:storage];
 }
 
@@ -128,7 +141,7 @@ NSString *const TSLazyRestoreAttachmentsGroup = @"TSLazyRestoreAttachmentsGroup"
     YapDatabaseViewGrouping *viewGrouping = [YapDatabaseViewGrouping withObjectBlock:^NSString *(
         YapDatabaseReadTransaction *transaction, NSString *collection, NSString *key, id object) {
         if (![object isKindOfClass:[TSInteraction class]]) {
-            OWSProdLogAndFail(@"%@ Unexpected entity %@ in collection: %@", self.logTag, [object class], collection);
+            OWSFailDebug(@"Unexpected entity %@ in collection: %@", [object class], collection);
             return nil;
         }
         TSInteraction *interaction = (TSInteraction *)object;
@@ -147,8 +160,75 @@ NSString *const TSLazyRestoreAttachmentsGroup = @"TSLazyRestoreAttachmentsGroup"
 
     [self registerMessageDatabaseViewWithName:TSThreadSpecialMessagesDatabaseViewExtensionName
                                  viewGrouping:viewGrouping
-                                      version:@"1"
+                                      version:@"2"
                                       storage:storage];
+}
+
++ (void)asyncRegisterLegacyThreadInteractionsDatabaseView:(OWSStorage *)storage
+{
+    OWSAssertIsOnMainThread();
+    OWSAssert(storage);
+
+    YapDatabaseView *existingView = [storage registeredExtension:TSMessageDatabaseViewExtensionName_Legacy];
+    if (existingView) {
+        OWSFailDebug(@"Registered database view twice: %@", TSMessageDatabaseViewExtensionName_Legacy);
+        return;
+    }
+
+    YapDatabaseViewGrouping *viewGrouping = [YapDatabaseViewGrouping withObjectBlock:^NSString *(
+        YapDatabaseReadTransaction *transaction, NSString *collection, NSString *key, id object) {
+        if (![object isKindOfClass:[TSInteraction class]]) {
+            OWSFailDebug(@"%@ Unexpected entity %@ in collection: %@", self.logTag, [object class], collection);
+            return nil;
+        }
+        TSInteraction *interaction = (TSInteraction *)object;
+
+        return interaction.uniqueThreadId;
+    }];
+
+    YapDatabaseViewSorting *viewSorting =
+        [YapDatabaseViewSorting withObjectBlock:^NSComparisonResult(YapDatabaseReadTransaction *transaction,
+            NSString *group,
+            NSString *collection1,
+            NSString *key1,
+            id object1,
+            NSString *collection2,
+            NSString *key2,
+            id object2) {
+            if (![object1 isKindOfClass:[TSInteraction class]]) {
+                OWSFailDebug(@"%@ Unexpected entity %@ in collection: %@", self.logTag, [object1 class], collection1);
+                return NSOrderedSame;
+            }
+            if (![object2 isKindOfClass:[TSInteraction class]]) {
+                OWSFailDebug(@"%@ Unexpected entity %@ in collection: %@", self.logTag, [object2 class], collection2);
+                return NSOrderedSame;
+            }
+            TSInteraction *interaction1 = (TSInteraction *)object1;
+            TSInteraction *interaction2 = (TSInteraction *)object2;
+
+            // Legit usage of timestampForLegacySorting since we're registering the
+            // legacy extension
+            uint64_t timestamp1 = interaction1.timestampForLegacySorting;
+            uint64_t timestamp2 = interaction2.timestampForLegacySorting;
+
+            if (timestamp1 > timestamp2) {
+                return NSOrderedDescending;
+            } else if (timestamp1 < timestamp2) {
+                return NSOrderedAscending;
+            } else {
+                return NSOrderedSame;
+            }
+        }];
+
+    YapDatabaseViewOptions *options = [YapDatabaseViewOptions new];
+    options.isPersistent = YES;
+    options.allowedCollections =
+        [[YapWhitelistBlacklist alloc] initWithWhitelist:[NSSet setWithObject:[TSInteraction collection]]];
+
+    YapDatabaseView *view =
+        [[YapDatabaseAutoView alloc] initWithGrouping:viewGrouping sorting:viewSorting versionTag:@"1" options:options];
+
+    [storage asyncRegisterExtension:view withName:TSMessageDatabaseViewExtensionName_Legacy];
 }
 
 + (void)asyncRegisterThreadInteractionsDatabaseView:(OWSStorage *)storage
@@ -156,7 +236,7 @@ NSString *const TSLazyRestoreAttachmentsGroup = @"TSLazyRestoreAttachmentsGroup"
     YapDatabaseViewGrouping *viewGrouping = [YapDatabaseViewGrouping withObjectBlock:^NSString *(
         YapDatabaseReadTransaction *transaction, NSString *collection, NSString *key, id object) {
         if (![object isKindOfClass:[TSInteraction class]]) {
-            OWSProdLogAndFail(@"%@ Unexpected entity %@ in collection: %@", self.logTag, [object class], collection);
+            OWSFailDebug(@"Unexpected entity %@ in collection: %@", [object class], collection);
             return nil;
         }
         TSInteraction *interaction = (TSInteraction *)object;
@@ -166,7 +246,7 @@ NSString *const TSLazyRestoreAttachmentsGroup = @"TSLazyRestoreAttachmentsGroup"
 
     [self registerMessageDatabaseViewWithName:TSMessageDatabaseViewExtensionName
                                  viewGrouping:viewGrouping
-                                      version:@"1"
+                                      version:@"2"
                                       storage:storage];
 }
 
@@ -182,7 +262,7 @@ NSString *const TSLazyRestoreAttachmentsGroup = @"TSLazyRestoreAttachmentsGroup"
 
     [self registerMessageDatabaseViewWithName:TSThreadOutgoingMessageDatabaseViewExtensionName
                                  viewGrouping:viewGrouping
-                                      version:@"2"
+                                      version:@"3"
                                       storage:storage];
 }
 
@@ -190,38 +270,30 @@ NSString *const TSLazyRestoreAttachmentsGroup = @"TSLazyRestoreAttachmentsGroup"
 {
     YapDatabaseView *threadView = [storage registeredExtension:TSThreadDatabaseViewExtensionName];
     if (threadView) {
-        OWSFail(@"Registered database view twice: %@", TSThreadDatabaseViewExtensionName);
+        OWSFailDebug(@"Registered database view twice: %@", TSThreadDatabaseViewExtensionName);
         return;
     }
 
     YapDatabaseViewGrouping *viewGrouping = [YapDatabaseViewGrouping withObjectBlock:^NSString *(
         YapDatabaseReadTransaction *transaction, NSString *collection, NSString *key, id object) {
         if (![object isKindOfClass:[TSThread class]]) {
-            OWSProdLogAndFail(@"%@ Unexpected entity %@ in collection: %@", self.logTag, [object class], collection);
+            OWSFailDebug(@"Unexpected entity %@ in collection: %@", [object class], collection);
             return nil;
         }
         TSThread *thread = (TSThread *)object;
 
-        if (thread.isGroupThread) {
-            // Do nothing; we never hide group threads.
-        } else if (thread.hasEverHadMessage) {
+        if (thread.shouldThreadBeVisible) {
             // Do nothing; we never hide threads that have ever had a message.
         } else {
             YapDatabaseViewTransaction *viewTransaction = [transaction ext:TSMessageDatabaseViewExtensionName];
-            OWSAssert(viewTransaction);
+            OWSAssertDebug(viewTransaction);
             NSUInteger threadMessageCount = [viewTransaction numberOfItemsInGroup:thread.uniqueId];
             if (threadMessageCount < 1) {
                 return nil;
             }
         }
 
-        if (thread.archivalDate) {
-            return ([self threadShouldBeInInbox:thread]) ? TSInboxGroup : TSArchiveGroup;
-        } else if (thread.archivalDate) {
-            return TSArchiveGroup;
-        } else {
-            return TSInboxGroup;
-        }
+        return [thread isArchivedWithTransaction:transaction] ? TSArchiveGroup : TSInboxGroup;
     }];
 
     YapDatabaseViewSorting *viewSorting = [self threadSorting];
@@ -232,32 +304,9 @@ NSString *const TSLazyRestoreAttachmentsGroup = @"TSLazyRestoreAttachmentsGroup"
         [[YapWhitelistBlacklist alloc] initWithWhitelist:[NSSet setWithObject:[TSThread collection]]];
 
     YapDatabaseView *databaseView =
-        [[YapDatabaseAutoView alloc] initWithGrouping:viewGrouping sorting:viewSorting versionTag:@"3" options:options];
+        [[YapDatabaseAutoView alloc] initWithGrouping:viewGrouping sorting:viewSorting versionTag:@"4" options:options];
 
     [storage asyncRegisterExtension:databaseView withName:TSThreadDatabaseViewExtensionName];
-}
-
-/**
- *  Determines whether a thread belongs to the archive or inbox
- *
- *  @param thread TSThread
- *
- *  @return Inbox if true, Archive if false
- */
-
-+ (BOOL)threadShouldBeInInbox:(TSThread *)thread {
-    NSDate *lastMessageDate = thread.lastMessageDate;
-    NSDate *archivalDate    = thread.archivalDate;
-    if (lastMessageDate && archivalDate) { // this is what is called
-        return ([lastMessageDate timeIntervalSinceDate:archivalDate] > 0)
-                   ? YES
-                   : NO; // if there hasn't been a new message since the archive date, it's in the archive. an issue is
-                         // that empty threads are always given with a lastmessage date of the present on every launch
-    } else if (archivalDate) {
-        return NO;
-    }
-
-    return YES;
 }
 
 + (YapDatabaseViewSorting *)threadSorting {
@@ -270,17 +319,26 @@ NSString *const TSLazyRestoreAttachmentsGroup = @"TSLazyRestoreAttachmentsGroup"
         NSString *key2,
         id object2) {
         if (![object1 isKindOfClass:[TSThread class]]) {
-            OWSProdLogAndFail(@"%@ Unexpected entity %@ in collection: %@", self.logTag, [object1 class], collection1);
+            OWSFailDebug(@"Unexpected entity %@ in collection: %@", [object1 class], collection1);
             return NSOrderedSame;
         }
         if (![object2 isKindOfClass:[TSThread class]]) {
-            OWSProdLogAndFail(@"%@ Unexpected entity %@ in collection: %@", self.logTag, [object2 class], collection2);
+            OWSFailDebug(@"Unexpected entity %@ in collection: %@", [object2 class], collection2);
             return NSOrderedSame;
         }
         TSThread *thread1 = (TSThread *)object1;
         TSThread *thread2 = (TSThread *)object2;
         if ([group isEqualToString:TSArchiveGroup] || [group isEqualToString:TSInboxGroup]) {
-            return [thread1.lastMessageDate compare:thread2.lastMessageDate];
+
+            TSInteraction *_Nullable lastInteractionForInbox1 =
+                [thread1 lastInteractionForInboxWithTransaction:transaction];
+            NSDate *date1 = lastInteractionForInbox1 ? lastInteractionForInbox1.receivedAtDate : thread1.creationDate;
+
+            TSInteraction *_Nullable lastInteractionForInbox2 =
+                [thread2 lastInteractionForInboxWithTransaction:transaction];
+            NSDate *date2 = lastInteractionForInbox2 ? lastInteractionForInbox2.receivedAtDate : thread2.creationDate;
+
+            return [date1 compare:date2];
         }
 
         return NSOrderedSame;
@@ -297,11 +355,11 @@ NSString *const TSLazyRestoreAttachmentsGroup = @"TSLazyRestoreAttachmentsGroup"
         NSString *key2,
         id object2) {
         if (![object1 isKindOfClass:[TSInteraction class]]) {
-            OWSProdLogAndFail(@"%@ Unexpected entity %@ in collection: %@", self.logTag, [object1 class], collection1);
+            OWSFailDebug(@"Unexpected entity %@ in collection: %@", [object1 class], collection1);
             return NSOrderedSame;
         }
         if (![object2 isKindOfClass:[TSInteraction class]]) {
-            OWSProdLogAndFail(@"%@ Unexpected entity %@ in collection: %@", self.logTag, [object2 class], collection2);
+            OWSFailDebug(@"Unexpected entity %@ in collection: %@", [object2 class], collection2);
             return NSOrderedSame;
         }
         TSInteraction *message1 = (TSInteraction *)object1;
@@ -316,7 +374,7 @@ NSString *const TSLazyRestoreAttachmentsGroup = @"TSLazyRestoreAttachmentsGroup"
     YapDatabaseViewGrouping *viewGrouping = [YapDatabaseViewGrouping withObjectBlock:^NSString *_Nullable(
         YapDatabaseReadTransaction *transaction, NSString *collection, NSString *key, id object) {
         if (![object isKindOfClass:[OWSDevice class]]) {
-            OWSProdLogAndFail(@"%@ Unexpected entity %@ in collection: %@", self.logTag, [object class], collection);
+            OWSFailDebug(@"Unexpected entity %@ in collection: %@", [object class], collection);
             return nil;
         }
         OWSDevice *device = (OWSDevice *)object;
@@ -336,11 +394,11 @@ NSString *const TSLazyRestoreAttachmentsGroup = @"TSLazyRestoreAttachmentsGroup"
         NSString *key2,
         id object2) {
         if (![object1 isKindOfClass:[OWSDevice class]]) {
-            OWSProdLogAndFail(@"%@ Unexpected entity %@ in collection: %@", self.logTag, [object1 class], collection1);
+            OWSFailDebug(@"Unexpected entity %@ in collection: %@", [object1 class], collection1);
             return NSOrderedSame;
         }
         if (![object2 isKindOfClass:[OWSDevice class]]) {
-            OWSProdLogAndFail(@"%@ Unexpected entity %@ in collection: %@", self.logTag, [object2 class], collection2);
+            OWSFailDebug(@"Unexpected entity %@ in collection: %@", [object2 class], collection2);
             return NSOrderedSame;
         }
         OWSDevice *device1 = (OWSDevice *)object1;
@@ -362,92 +420,94 @@ NSString *const TSLazyRestoreAttachmentsGroup = @"TSLazyRestoreAttachmentsGroup"
 }
 
 + (void)asyncRegisterLazyRestoreAttachmentsDatabaseView:(OWSStorage *)storage
-                                             completion:(nullable dispatch_block_t)completion
 {
     YapDatabaseViewGrouping *viewGrouping = [YapDatabaseViewGrouping withObjectBlock:^NSString *_Nullable(
         YapDatabaseReadTransaction *transaction, NSString *collection, NSString *key, id object) {
         if (![object isKindOfClass:[TSAttachment class]]) {
-            OWSProdLogAndFail(@"%@ Unexpected entity %@ in collection: %@", self.logTag, [object class], collection);
+            OWSFailDebug(@"Unexpected entity %@ in collection: %@", [object class], collection);
             return nil;
         }
-        if (![object isKindOfClass:[TSAttachmentStream class]]) {
+        if (![object isKindOfClass:[TSAttachmentPointer class]]) {
             return nil;
         }
-        TSAttachmentStream *attachmentStream = (TSAttachmentStream *)object;
-        if (attachmentStream.lazyRestoreFragment) {
+        TSAttachmentPointer *attachmentPointer = (TSAttachmentPointer *)object;
+        if (attachmentPointer.lazyRestoreFragment) {
             return TSLazyRestoreAttachmentsGroup;
         } else {
             return nil;
         }
     }];
 
-    YapDatabaseViewSorting *viewSorting = [YapDatabaseViewSorting withObjectBlock:^NSComparisonResult(
-        YapDatabaseReadTransaction *transaction,
-        NSString *group,
-        NSString *collection1,
-        NSString *key1,
-        id object1,
-        NSString *collection2,
-        NSString *key2,
-        id object2) {
-        if (![object1 isKindOfClass:[TSAttachmentStream class]]) {
-            OWSProdLogAndFail(@"%@ Unexpected entity %@ in collection: %@", self.logTag, [object1 class], collection1);
-            return NSOrderedSame;
-        }
-        if (![object2 isKindOfClass:[TSAttachmentStream class]]) {
-            OWSProdLogAndFail(@"%@ Unexpected entity %@ in collection: %@", self.logTag, [object2 class], collection2);
-            return NSOrderedSame;
-        }
+    YapDatabaseViewSorting *viewSorting =
+        [YapDatabaseViewSorting withObjectBlock:^NSComparisonResult(YapDatabaseReadTransaction *transaction,
+            NSString *group,
+            NSString *collection1,
+            NSString *key1,
+            id object1,
+            NSString *collection2,
+            NSString *key2,
+            id object2) {
+            if (![object1 isKindOfClass:[TSAttachmentPointer class]]) {
+                OWSFailDebug(@"Unexpected entity %@ in collection: %@", [object1 class], collection1);
+                return NSOrderedSame;
+            }
+            if (![object2 isKindOfClass:[TSAttachmentPointer class]]) {
+                OWSFailDebug(@"Unexpected entity %@ in collection: %@", [object2 class], collection2);
+                return NSOrderedSame;
+            }
 
-        // Specific ordering doesn't matter; we just need a stable ordering.
-        TSAttachmentStream *attachmentStream1 = (TSAttachmentStream *)object1;
-        TSAttachmentStream *attachmentStream2 = (TSAttachmentStream *)object2;
-        return [attachmentStream2.creationTimestamp compare:attachmentStream1.creationTimestamp];
-    }];
+            // Specific ordering doesn't matter; we just need a stable ordering.
+            TSAttachmentPointer *attachmentPointer1 = (TSAttachmentPointer *)object1;
+            TSAttachmentPointer *attachmentPointer2 = (TSAttachmentPointer *)object2;
+            return [attachmentPointer1.uniqueId compare:attachmentPointer2.uniqueId];
+        }];
 
     YapDatabaseViewOptions *options = [YapDatabaseViewOptions new];
     options.isPersistent = YES;
     options.allowedCollections =
         [[YapWhitelistBlacklist alloc] initWithWhitelist:[NSSet setWithObject:[TSAttachment collection]]];
     YapDatabaseView *view =
-        [[YapDatabaseAutoView alloc] initWithGrouping:viewGrouping sorting:viewSorting versionTag:@"3" options:options];
-    [storage asyncRegisterExtension:view
-                           withName:TSLazyRestoreAttachmentsDatabaseViewExtensionName
-                         completion:completion];
+        [[YapDatabaseAutoView alloc] initWithGrouping:viewGrouping sorting:viewSorting versionTag:@"4" options:options];
+    [storage asyncRegisterExtension:view withName:TSLazyRestoreAttachmentsDatabaseViewExtensionName];
 }
 
 + (id)unseenDatabaseViewExtension:(YapDatabaseReadTransaction *)transaction
 {
-    OWSAssert(transaction);
+    OWSAssertDebug(transaction);
 
-    id result = [transaction ext:TSUnseenDatabaseViewExtensionName];
+    id _Nullable result = [transaction ext:TSUnseenDatabaseViewExtensionName];
+    OWSAssertDebug(result);
 
+    // TODO: I believe we can now safely remove this?
     if (!result) {
         result = [transaction ext:TSUnreadDatabaseViewExtensionName];
-        OWSAssert(result);
+        OWSAssertDebug(result);
     }
 
     return result;
 }
 
+// MJK TODO - dynamic interactions
 + (id)threadOutgoingMessageDatabaseView:(YapDatabaseReadTransaction *)transaction
 {
-    OWSAssert(transaction);
+    OWSAssertDebug(transaction);
 
     id result = [transaction ext:TSThreadOutgoingMessageDatabaseViewExtensionName];
-    OWSAssert(result);
+    OWSAssertDebug(result);
 
     return result;
 }
 
 + (id)threadSpecialMessagesDatabaseView:(YapDatabaseReadTransaction *)transaction
 {
-    OWSAssert(transaction);
+    OWSAssertDebug(transaction);
 
     id result = [transaction ext:TSThreadSpecialMessagesDatabaseViewExtensionName];
-    OWSAssert(result);
+    OWSAssertDebug(result);
 
     return result;
 }
 
 @end
+
+NS_ASSUME_NONNULL_END

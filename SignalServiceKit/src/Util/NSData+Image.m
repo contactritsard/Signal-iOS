@@ -1,9 +1,14 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 #import "NSData+Image.h"
 #import "MIMETypeUtil.h"
+#import "OWSFileSystem.h"
+#import <AVFoundation/AVFoundation.h>
+#import <SignalServiceKit/SignalServiceKit-Swift.h>
+
+NS_ASSUME_NONNULL_BEGIN
 
 typedef NS_ENUM(NSInteger, ImageFormat) {
     ImageFormat_Unknown,
@@ -23,21 +28,180 @@ typedef NS_ENUM(NSInteger, ImageFormat) {
 
 - (BOOL)ows_isValidImage
 {
-    return [self ows_isValidImageWithMimeType:nil];
+    ImageFormat imageFormat = [self ows_guessImageFormat];
+
+    BOOL isAnimated = imageFormat == ImageFormat_Gif;
+
+    const NSUInteger kMaxFileSize
+        = (isAnimated ? OWSMediaUtils.kMaxFileSizeAnimatedImage : OWSMediaUtils.kMaxFileSizeImage);
+    NSUInteger fileSize = self.length;
+    if (fileSize > kMaxFileSize) {
+        OWSLogWarn(@"Oversize image.");
+        return NO;
+    }
+
+    if (![self ows_isValidImageWithMimeType:nil imageFormat:imageFormat]) {
+        return NO;
+    }
+
+    if (![self ows_hasValidImageDimensionsWithIsAnimated:isAnimated]) {
+        return NO;
+    }
+
+    return YES;
 }
 
 + (BOOL)ows_isValidImageAtPath:(NSString *)filePath mimeType:(nullable NSString *)mimeType
 {
-    NSError *error = nil;
-    NSData *data = [NSData dataWithContentsOfFile:filePath options:NSDataReadingMappedIfSafe error:&error];
-    if (error) {
-        DDLogError(@"%@ could not read image data: %@", self.logTag, error);
+    if (mimeType.length < 1) {
+        NSString *fileExtension = [filePath pathExtension].lowercaseString;
+        mimeType = [MIMETypeUtil mimeTypeForFileExtension:fileExtension];
+    }
+    if (mimeType.length < 1) {
+        OWSLogError(@"Image has unknown MIME type.");
+        return NO;
+    }
+    NSNumber *_Nullable fileSize = [OWSFileSystem fileSizeOfPath:filePath];
+    if (!fileSize) {
+        OWSLogError(@"Could not determine file size.");
+        return NO;
     }
 
-    return [data ows_isValidImageWithMimeType:mimeType];
+    BOOL isAnimated = [MIMETypeUtil isSupportedAnimatedMIMEType:mimeType];
+    if (isAnimated) {
+        if (fileSize.unsignedIntegerValue > OWSMediaUtils.kMaxFileSizeAnimatedImage) {
+            OWSLogWarn(@"Oversize animated image.");
+            return NO;
+        }
+    } else if ([MIMETypeUtil isSupportedImageMIMEType:mimeType]) {
+        if (fileSize.unsignedIntegerValue > OWSMediaUtils.kMaxFileSizeImage) {
+            OWSLogWarn(@"Oversize still image.");
+            return NO;
+        }
+    } else {
+        OWSLogError(@"Image has unsupported MIME type.");
+        return NO;
+    }
+
+    NSError *error = nil;
+    NSData *_Nullable data = [NSData dataWithContentsOfFile:filePath options:NSDataReadingMappedIfSafe error:&error];
+    if (!data || error) {
+        OWSLogError(@"Could not read image data: %@", error);
+        return NO;
+    }
+
+    if (![data ows_isValidImageWithMimeType:mimeType]) {
+        return NO;
+    }
+
+    if (![self ows_hasValidImageDimensionsAtPath:filePath isAnimated:isAnimated]) {
+        OWSLogError(@"%@ image had invalid dimensions.", self.logTag);
+        return NO;
+    }
+
+    return YES;
+}
+
+- (BOOL)ows_hasValidImageDimensionsWithIsAnimated:(BOOL)isAnimated
+{
+    CGImageSourceRef imageSource = CGImageSourceCreateWithData((__bridge CFDataRef)self, NULL);
+    if (imageSource == NULL) {
+        return NO;
+    }
+    BOOL result = [NSData ows_hasValidImageDimensionWithImageSource:imageSource isAnimated:isAnimated];
+    CFRelease(imageSource);
+    return result;
+}
+
++ (BOOL)ows_hasValidImageDimensionsAtPath:(NSString *)path isAnimated:(BOOL)isAnimated
+{
+    NSURL *url = [NSURL fileURLWithPath:path];
+    if (!url) {
+        return NO;
+    }
+
+    CGImageSourceRef imageSource = CGImageSourceCreateWithURL((__bridge CFURLRef)url, NULL);
+    if (imageSource == NULL) {
+        return NO;
+    }
+    BOOL result = [self ows_hasValidImageDimensionWithImageSource:imageSource isAnimated:isAnimated];
+    CFRelease(imageSource);
+    return result;
+}
+
++ (BOOL)ows_hasValidImageDimensionWithImageSource:(CGImageSourceRef)imageSource isAnimated:(BOOL)isAnimated
+{
+    OWSAssertDebug(imageSource);
+
+    NSDictionary *imageProperties
+        = (__bridge_transfer NSDictionary *)CGImageSourceCopyPropertiesAtIndex(imageSource, 0, NULL);
+
+    if (!imageProperties) {
+        return NO;
+    }
+
+    NSNumber *widthNumber = imageProperties[(__bridge NSString *)kCGImagePropertyPixelWidth];
+    if (!widthNumber) {
+        OWSLogError(@"widthNumber was unexpectedly nil");
+        return NO;
+    }
+    CGFloat width = widthNumber.floatValue;
+
+    NSNumber *heightNumber = imageProperties[(__bridge NSString *)kCGImagePropertyPixelHeight];
+    if (!heightNumber) {
+        OWSLogError(@"heightNumber was unexpectedly nil");
+        return NO;
+    }
+    CGFloat height = heightNumber.floatValue;
+
+    /* The number of bits in each color sample of each pixel. The value of this
+     * key is a CFNumberRef. */
+    NSNumber *depthNumber = imageProperties[(__bridge NSString *)kCGImagePropertyDepth];
+    if (!depthNumber) {
+        OWSLogError(@"depthNumber was unexpectedly nil");
+        return NO;
+    }
+    NSUInteger depthBits = depthNumber.unsignedIntegerValue;
+    // This should usually be 1.
+    CGFloat depthBytes = (CGFloat)ceil(depthBits / 8.f);
+
+    /* The color model of the image such as "RGB", "CMYK", "Gray", or "Lab".
+     * The value of this key is CFStringRef. */
+    NSString *colorModel = imageProperties[(__bridge NSString *)kCGImagePropertyColorModel];
+    if (!colorModel) {
+        OWSLogError(@"colorModel was unexpectedly nil");
+        return NO;
+    }
+    if (![colorModel isEqualToString:(__bridge NSString *)kCGImagePropertyColorModelRGB]
+        && ![colorModel isEqualToString:(__bridge NSString *)kCGImagePropertyColorModelGray]) {
+        OWSLogError(@"Invalid colorModel: %@", colorModel);
+        return NO;
+    }
+
+    // We only support (A)RGB and (A)Grayscale, so worst case is 4.
+    const CGFloat kWorseCastComponentsPerPixel = 4;
+    CGFloat bytesPerPixel = kWorseCastComponentsPerPixel * depthBytes;
+
+    const CGFloat kExpectedBytePerPixel = 4;
+    CGFloat kMaxValidImageDimension
+        = (isAnimated ? OWSMediaUtils.kMaxAnimatedImageDimensions : OWSMediaUtils.kMaxStillImageDimensions);
+    CGFloat kMaxBytes = kMaxValidImageDimension * kMaxValidImageDimension * kExpectedBytePerPixel;
+    CGFloat actualBytes = width * height * bytesPerPixel;
+    if (actualBytes > kMaxBytes) {
+        OWSLogWarn(@"invalid dimensions width: %f, height %f, bytesPerPixel: %f", width, height, bytesPerPixel);
+        return NO;
+    }
+
+    return YES;
 }
 
 - (BOOL)ows_isValidImageWithMimeType:(nullable NSString *)mimeType
+{
+    ImageFormat imageFormat = [self ows_guessImageFormat];
+    return [self ows_isValidImageWithMimeType:mimeType imageFormat:imageFormat];
+}
+
+- (BOOL)ows_isValidImageWithMimeType:(nullable NSString *)mimeType imageFormat:(ImageFormat)imageFormat
 {
     // Don't trust the file extension; iOS (e.g. UIKit, Core Graphics) will happily
     // load a .gif with a .png file extension.
@@ -46,7 +210,6 @@ typedef NS_ENUM(NSInteger, ImageFormat) {
     //
     // If the image has a declared MIME type, ensure that agrees with the
     // deduced image format.
-    ImageFormat imageFormat = [self ows_guessImageFormat];
     switch (imageFormat) {
         case ImageFormat_Unknown:
             return NO;
@@ -151,4 +314,96 @@ typedef NS_ENUM(NSInteger, ImageFormat) {
     return (width > 0 && width < kMaxValidSize && height > 0 && height < kMaxValidSize);
 }
 
++ (CGSize)imageSizeForFilePath:(NSString *)filePath mimeType:(NSString *)mimeType
+{
+    if (![NSData ows_isValidImageAtPath:filePath mimeType:mimeType]) {
+        OWSLogError(@"Invalid image.");
+        return CGSizeZero;
+    }
+    NSURL *url = [NSURL fileURLWithPath:filePath];
+
+    // With CGImageSource we avoid loading the whole image into memory.
+    CGImageSourceRef source = CGImageSourceCreateWithURL((CFURLRef)url, NULL);
+    if (!source) {
+        OWSFailDebug(@"Could not load image: %@", url);
+        return CGSizeZero;
+    }
+
+    NSDictionary *options = @{
+        (NSString *)kCGImageSourceShouldCache : @(NO),
+    };
+    NSDictionary *properties
+        = (__bridge_transfer NSDictionary *)CGImageSourceCopyPropertiesAtIndex(source, 0, (CFDictionaryRef)options);
+    CGSize imageSize = CGSizeZero;
+    if (properties) {
+        NSNumber *orientation = properties[(NSString *)kCGImagePropertyOrientation];
+        NSNumber *width = properties[(NSString *)kCGImagePropertyPixelWidth];
+        NSNumber *height = properties[(NSString *)kCGImagePropertyPixelHeight];
+
+        if (width && height) {
+            imageSize = CGSizeMake(width.floatValue, height.floatValue);
+
+            if (orientation) {
+                imageSize = [self applyImageOrientation:(UIImageOrientation)orientation.intValue toImageSize:imageSize];
+            }
+        } else {
+            OWSFailDebug(@"Could not determine size of image: %@", url);
+        }
+    }
+    CFRelease(source);
+    return imageSize;
+}
+
++ (CGSize)applyImageOrientation:(UIImageOrientation)orientation toImageSize:(CGSize)imageSize
+{
+    switch (orientation) {
+        case UIImageOrientationUp: // EXIF = 1
+        case UIImageOrientationUpMirrored: // EXIF = 2
+        case UIImageOrientationDown: // EXIF = 3
+        case UIImageOrientationDownMirrored: // EXIF = 4
+            return imageSize;
+        case UIImageOrientationLeftMirrored: // EXIF = 5
+        case UIImageOrientationLeft: // EXIF = 6
+        case UIImageOrientationRightMirrored: // EXIF = 7
+        case UIImageOrientationRight: // EXIF = 8
+            return CGSizeMake(imageSize.height, imageSize.width);
+        default:
+            return imageSize;
+    }
+}
+
++ (BOOL)hasAlphaForValidImageFilePath:(NSString *)filePath
+{
+    NSURL *url = [NSURL fileURLWithPath:filePath];
+
+    // With CGImageSource we avoid loading the whole image into memory.
+    CGImageSourceRef source = CGImageSourceCreateWithURL((CFURLRef)url, NULL);
+    if (!source) {
+        OWSFailDebug(@"Could not load image: %@", url);
+        return NO;
+    }
+
+    NSDictionary *options = @{
+        (NSString *)kCGImageSourceShouldCache : @(NO),
+    };
+    NSDictionary *properties
+        = (__bridge_transfer NSDictionary *)CGImageSourceCopyPropertiesAtIndex(source, 0, (CFDictionaryRef)options);
+    BOOL result = NO;
+    if (properties) {
+        NSNumber *_Nullable hasAlpha = properties[(NSString *)kCGImagePropertyHasAlpha];
+        if (hasAlpha) {
+            result = hasAlpha.boolValue;
+        } else {
+            // This is not an error; kCGImagePropertyHasAlpha is an optional
+            // property.
+            OWSLogWarn(@"Could not determine transparency of image: %@", url);
+            result = NO;
+        }
+    }
+    CFRelease(source);
+    return result;
+}
+
 @end
+
+NS_ASSUME_NONNULL_END

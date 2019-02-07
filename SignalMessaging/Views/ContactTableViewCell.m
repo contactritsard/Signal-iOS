@@ -37,12 +37,12 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)setAccessoryView:(nullable UIView *)accessoryView
 {
-    OWSFail(@"%@ use ows_setAccessoryView instead.", self.logTag);
+    OWSFailDebug(@"use ows_setAccessoryView instead.");
 }
 
 - (void)configure
 {
-    OWSAssert(!self.cellView);
+    OWSAssertDebug(!self.cellView);
 
     self.preservesSuperviewLayoutMargins = YES;
     self.contentView.preservesSuperviewLayoutMargins = YES;
@@ -53,28 +53,23 @@ NS_ASSUME_NONNULL_BEGIN
     self.cellView.userInteractionEnabled = NO;
 }
 
-- (void)configureWithSignalAccount:(SignalAccount *)signalAccount contactsManager:(OWSContactsManager *)contactsManager
-{
-    [self configureWithRecipientId:signalAccount.recipientId contactsManager:contactsManager];
-}
-
-- (void)configureWithRecipientId:(NSString *)recipientId contactsManager:(OWSContactsManager *)contactsManager
+- (void)configureWithRecipientId:(NSString *)recipientId
 {
     [OWSTableItem configureCell:self];
 
-    [self.cellView configureWithRecipientId:recipientId contactsManager:contactsManager];
+    [self.cellView configureWithRecipientId:recipientId];
 
     // Force layout, since imageView isn't being initally rendered on App Store optimized build.
     [self layoutSubviews];
 }
 
-- (void)configureWithThread:(TSThread *)thread contactsManager:(OWSContactsManager *)contactsManager
+- (void)configureWithThread:(TSThread *)thread
 {
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
 
     [OWSTableItem configureCell:self];
 
-    [self.cellView configureWithThread:thread contactsManager:contactsManager];
+    [self.cellView configureWithThread:thread];
 
     // Force layout, since imageView isn't being initally rendered on App Store optimized build.
     [self layoutSubviews];
@@ -82,7 +77,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)setAccessoryMessage:(nullable NSString *)accessoryMessage
 {
-    OWSAssert(self.cellView);
+    OWSAssertDebug(self.cellView);
 
     self.cellView.accessoryMessage = accessoryMessage;
 }

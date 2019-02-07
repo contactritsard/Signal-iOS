@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 #import "AvatarViewHelper.h"
@@ -28,7 +28,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)showChangeAvatarUI
 {
     OWSAssertIsOnMainThread();
-    OWSAssert(self.delegate);
+    OWSAssertDebug(self.delegate);
 
     UIAlertController *actionSheetController =
         [UIAlertController alertControllerWithTitle:self.delegate.avatarActionSheetTitle
@@ -67,15 +67,15 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)takePicture
 {
     OWSAssertIsOnMainThread();
-    OWSAssert(self.delegate);
+    OWSAssertDebug(self.delegate);
 
     [self.delegate.fromViewController ows_askForCameraPermissions:^(BOOL granted) {
         if (!granted) {
-            DDLogWarn(@"%@ Camera permission denied.", self.logTag);
+            OWSLogWarn(@"Camera permission denied.");
             return;
         }
 
-        UIImagePickerController *picker = [UIImagePickerController new];
+        UIImagePickerController *picker = [OWSImagePickerController new];
         picker.delegate = self;
         picker.allowsEditing = NO;
         picker.sourceType = UIImagePickerControllerSourceTypeCamera;
@@ -88,15 +88,15 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)chooseFromLibrary
 {
     OWSAssertIsOnMainThread();
-    OWSAssert(self.delegate);
+    OWSAssertDebug(self.delegate);
 
     [self.delegate.fromViewController ows_askForMediaLibraryPermissions:^(BOOL granted) {
         if (!granted) {
-            DDLogWarn(@"%@ Media Library permission denied.", self.logTag);
+            OWSLogWarn(@"Media Library permission denied.");
             return;
         }
 
-        UIImagePickerController *picker = [UIImagePickerController new];
+        UIImagePickerController *picker = [OWSImagePickerController new];
         picker.delegate = self;
         picker.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;
         picker.mediaTypes = @[ (__bridge NSString *)kUTTypeImage ];
@@ -112,7 +112,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)imagePickerControllerDidCancel:(UIImagePickerController *)picker
 {
     OWSAssertIsOnMainThread();
-    OWSAssert(self.delegate);
+    OWSAssertDebug(self.delegate);
 
     [self.delegate.fromViewController dismissViewControllerAnimated:YES completion:nil];
 }
@@ -123,7 +123,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)imagePickerController:(UIImagePickerController *)picker didFinishPickingMediaWithInfo:(NSDictionary *)info
 {
     OWSAssertIsOnMainThread();
-    OWSAssert(self.delegate);
+    OWSAssertDebug(self.delegate);
 
     UIImage *rawAvatar = [info objectForKey:UIImagePickerControllerOriginalImage];
 

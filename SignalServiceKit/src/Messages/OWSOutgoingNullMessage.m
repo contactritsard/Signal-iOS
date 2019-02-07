@@ -1,13 +1,13 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 #import "OWSOutgoingNullMessage.h"
-#import "Cryptography.h"
-#import "NSDate+OWS.h"
-#import "OWSSignalServiceProtos.pb.h"
 #import "OWSVerificationStateSyncMessage.h"
 #import "TSContactThread.h"
+#import <SignalCoreKit/Cryptography.h>
+#import <SignalCoreKit/NSDate+OWS.h>
+#import <SignalServiceKit/SignalServiceKit-Swift.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -24,6 +24,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (instancetype)initWithContactThread:(TSContactThread *)contactThread
          verificationStateSyncMessage:(OWSVerificationStateSyncMessage *)verificationStateSyncMessage
 {
+    // MJK TODO - remove senderTimestamp
     self = [super initOutgoingMessageWithTimestamp:[NSDate ows_millisecondTimeStamp]
                                           inThread:contactThread
                                        messageBody:nil
@@ -31,9 +32,10 @@ NS_ASSUME_NONNULL_BEGIN
                                   expiresInSeconds:0
                                    expireStartedAt:0
                                     isVoiceMessage:NO
-                                  groupMetaMessage:TSGroupMessageUnspecified
+                                  groupMetaMessage:TSGroupMetaMessageUnspecified
                                      quotedMessage:nil
-                                      contactShare:nil];
+                                      contactShare:nil
+                                       linkPreview:nil];
     if (!self) {
         return self;
     }
@@ -45,14 +47,13 @@ NS_ASSUME_NONNULL_BEGIN
 
 #pragma mark - override TSOutgoingMessage
 
-- (NSData *)buildPlainTextData:(SignalRecipient *)recipient
+- (nullable NSData *)buildPlainTextData:(SignalRecipient *)recipient
 {
-    OWSSignalServiceProtosContentBuilder *contentBuilder = [OWSSignalServiceProtosContentBuilder new];
-    OWSSignalServiceProtosNullMessageBuilder *nullMessageBuilder = [OWSSignalServiceProtosNullMessageBuilder new];
+    SSKProtoNullMessageBuilder *nullMessageBuilder = [SSKProtoNullMessage builder];
 
     NSUInteger contentLength = self.verificationStateSyncMessage.unpaddedVerifiedLength;
 
-    OWSAssert(self.verificationStateSyncMessage.paddingBytesLength > 0);
+    OWSAssertDebug(self.verificationStateSyncMessage.paddingBytesLength > 0);
 
     // We add the same amount of padding in the VerificationStateSync message and it's coresponding NullMessage so that
     // the sync message is indistinguishable from an outgoing Sent transcript corresponding to the NullMessage. We pad
@@ -61,13 +62,26 @@ NS_ASSUME_NONNULL_BEGIN
     // verification sync which is ~1-512 bytes larger then that.
     contentLength += self.verificationStateSyncMessage.paddingBytesLength;
 
-    OWSAssert(contentLength > 0);
+    OWSAssertDebug(contentLength > 0);
 
     nullMessageBuilder.padding = [Cryptography generateRandomBytes:contentLength];
-    
-    contentBuilder.nullMessage = [nullMessageBuilder build];
 
-    return [contentBuilder build].data;
+    NSError *error;
+    SSKProtoNullMessage *_Nullable nullMessage = [nullMessageBuilder buildAndReturnError:&error];
+    if (error || !nullMessage) {
+        OWSFailDebug(@"could not build protobuf: %@", error);
+        return nil;
+    }
+
+    SSKProtoContentBuilder *contentBuilder = [SSKProtoContent builder];
+    contentBuilder.nullMessage = nullMessage;
+
+    NSData *_Nullable contentData = [contentBuilder buildSerializedDataAndReturnError:&error];
+    if (error || !contentData) {
+        OWSFailDebug(@"could not serialize protobuf: %@", error);
+        return nil;
+    }
+    return contentData;
 }
 
 - (BOOL)shouldSyncTranscript

@@ -35,7 +35,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, readonly) NSURL *mediaUrl;
 @property (nonatomic, nullable) AVAudioPlayer *audioPlayer;
 @property (nonatomic, nullable) NSTimer *audioPlayerPoller;
-@property (nonatomic, readonly) AudioActivity *audioActivity;
+@property (nonatomic, readonly) OWSAudioActivity *audioActivity;
 
 @end
 
@@ -44,25 +44,28 @@ NS_ASSUME_NONNULL_BEGIN
 @implementation OWSAudioPlayer
 
 - (instancetype)initWithMediaUrl:(NSURL *)mediaUrl
+                   audioBehavior:(OWSAudioBehavior)audioBehavior
 {
-    return [self initWithMediaUrl:mediaUrl delegate:[OWSAudioPlayerDelegateStub new]];
+    return [self initWithMediaUrl:mediaUrl audioBehavior:audioBehavior delegate:[OWSAudioPlayerDelegateStub new]];
 }
 
-- (instancetype)initWithMediaUrl:(NSURL *)mediaUrl delegate:(id<OWSAudioPlayerDelegate>)delegate
+- (instancetype)initWithMediaUrl:(NSURL *)mediaUrl
+                        audioBehavior:(OWSAudioBehavior)audioBehavior
+                        delegate:(id<OWSAudioPlayerDelegate>)delegate
 {
     self = [super init];
     if (!self) {
         return self;
     }
 
-    OWSAssert(mediaUrl);
-    OWSAssert(delegate);
+    OWSAssertDebug(mediaUrl);
+    OWSAssertDebug(delegate);
 
-    _delegate = delegate;
     _mediaUrl = mediaUrl;
+    _delegate = delegate;
 
     NSString *audioActivityDescription = [NSString stringWithFormat:@"%@ %@", self.logTag, self.mediaUrl];
-    _audioActivity = [[AudioActivity alloc] initWithAudioDescription:audioActivityDescription];
+    _audioActivity = [[OWSAudioActivity alloc] initWithAudioDescription:audioActivityDescription behavior:audioBehavior];
 
     [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(applicationDidEnterBackground:)
@@ -81,6 +84,15 @@ NS_ASSUME_NONNULL_BEGIN
     [self stop];
 }
 
+#pragma mark - Dependencies
+
+- (OWSAudioSession *)audioSession
+{
+    return Environment.shared.audioSession;
+}
+
+#pragma mark
+
 - (void)applicationDidEnterBackground:(NSNotification *)notification
 {
     [self stop];
@@ -88,27 +100,23 @@ NS_ASSUME_NONNULL_BEGIN
 
 #pragma mark - Methods
 
-- (void)playWithCurrentAudioCategory
-{
-    OWSAssertIsOnMainThread();
-    [OWSAudioSession.shared startAudioActivity:self.audioActivity];
-
-    [self play];
-}
-
-- (void)playWithPlaybackAudioCategory
-{
-    OWSAssertIsOnMainThread();
-    [OWSAudioSession.shared startPlaybackAudioActivity:self.audioActivity];
-
-    [self play];
-}
-
 - (void)play
 {
+
+    // get current audio activity
     OWSAssertIsOnMainThread();
-    OWSAssert(self.mediaUrl);
-    OWSAssert([self.delegate audioPlaybackState] != AudioPlaybackState_Playing);
+    [self playWithAudioActivity:self.audioActivity];
+}
+
+- (void)playWithAudioActivity:(OWSAudioActivity *)audioActivity
+{
+    OWSAssertIsOnMainThread();
+
+    BOOL success = [self.audioSession startAudioActivity:audioActivity];
+    OWSAssertDebug(success);
+
+    OWSAssertDebug(self.mediaUrl);
+    OWSAssertDebug([self.delegate audioPlaybackState] != AudioPlaybackState_Playing);
 
     [self.audioPlayerPoller invalidate];
 
@@ -118,7 +126,7 @@ NS_ASSUME_NONNULL_BEGIN
         NSError *error;
         self.audioPlayer = [[AVAudioPlayer alloc] initWithContentsOfURL:self.mediaUrl error:&error];
         if (error) {
-            DDLogError(@"%@ error: %@", self.logTag, error);
+            OWSLogError(@"error: %@", error);
             [self stop];
 
             if ([error.domain isEqualToString:NSOSStatusErrorDomain]
@@ -157,7 +165,7 @@ NS_ASSUME_NONNULL_BEGIN
     [self.audioPlayerPoller invalidate];
     [self.delegate setAudioProgress:(CGFloat)[self.audioPlayer currentTime] duration:(CGFloat)[self.audioPlayer duration]];
 
-    [OWSAudioSession.shared endAudioActivity:self.audioActivity];
+    [self endAudioActivities];
     [DeviceSleepManager.sharedInstance removeBlockWithBlockObject:self];
 }
 
@@ -170,8 +178,13 @@ NS_ASSUME_NONNULL_BEGIN
     [self.audioPlayerPoller invalidate];
     [self.delegate setAudioProgress:0 duration:0];
 
-    [OWSAudioSession.shared endAudioActivity:self.audioActivity];
+    [self endAudioActivities];
     [DeviceSleepManager.sharedInstance removeBlockWithBlockObject:self];
+}
+
+- (void)endAudioActivities
+{
+    [self.audioSession endAudioActivity:self.audioActivity];
 }
 
 - (void)togglePlayState
@@ -181,7 +194,7 @@ NS_ASSUME_NONNULL_BEGIN
     if (self.delegate.audioPlaybackState == AudioPlaybackState_Playing) {
         [self pause];
     } else {
-        [self play];
+        [self playWithAudioActivity:self.audioActivity];
     }
 }
 
@@ -191,8 +204,8 @@ NS_ASSUME_NONNULL_BEGIN
 {
     OWSAssertIsOnMainThread();
 
-    OWSAssert(self.audioPlayer);
-    OWSAssert(self.audioPlayerPoller);
+    OWSAssertDebug(self.audioPlayer);
+    OWSAssertDebug(self.audioPlayerPoller);
 
     [self.delegate setAudioProgress:(CGFloat)[self.audioPlayer currentTime] duration:(CGFloat)[self.audioPlayer duration]];
 }

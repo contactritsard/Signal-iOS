@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 import Foundation
@@ -32,6 +32,7 @@ public class ConversationHeaderView: UIStackView {
         }
         set {
             self.subtitleLabel.attributedText = newValue
+            self.subtitleLabel.isHidden = newValue == nil
         }
     }
 
@@ -103,11 +104,11 @@ public class ConversationHeaderView: UIStackView {
     }
 
     required public init(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+        notImplemented()
     }
 
     required public override init(frame: CGRect) {
-        fatalError("init(frame:) has not been implemented")
+        notImplemented()
     }
 
     public override var intrinsicContentSize: CGSize {

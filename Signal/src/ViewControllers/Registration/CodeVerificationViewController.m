@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 #import "CodeVerificationViewController.h"
@@ -15,8 +15,6 @@
 NS_ASSUME_NONNULL_BEGIN
 
 @interface CodeVerificationViewController () <UITextFieldDelegate>
-
-@property (nonatomic, readonly) AccountManager *accountManager;
 
 // Where the user enters the verification code they wish to document
 @property (nonatomic) UITextField *challengeTextField;
@@ -38,28 +36,18 @@ NS_ASSUME_NONNULL_BEGIN
 
 @implementation CodeVerificationViewController
 
-- (nullable instancetype)initWithCoder:(NSCoder *)aDecoder
+#pragma mark - Dependencies
+
+- (TSAccountManager *)tsAccountManager
 {
-    self = [super initWithCoder:aDecoder];
-    if (!self) {
-        return self;
-    }
-
-    _accountManager = SignalApp.sharedApp.accountManager;
-
-    return self;
+    OWSAssertDebug(SSKEnvironment.shared.tsAccountManager);
+    
+    return SSKEnvironment.shared.tsAccountManager;
 }
 
-- (instancetype)init
+- (AccountManager *)accountManager
 {
-    self = [super init];
-    if (!self) {
-        return self;
-    }
-
-    _accountManager = SignalApp.sharedApp.accountManager;
-
-    return self;
+    return AppEnvironment.shared.accountManager;
 }
 
 #pragma mark - View Lifecycle
@@ -152,7 +140,7 @@ NS_ASSUME_NONNULL_BEGIN
     if (UIDevice.currentDevice.isShorterThanIPhone5) {
         _challengeTextField = [DismissableTextField new];
     } else {
-        _challengeTextField = [UITextField new];
+        _challengeTextField = [OWSTextField new];
     }
 
     _challengeTextField.textColor = [UIColor blackColor];
@@ -251,7 +239,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (NSString *)phoneNumberText
 {
-    OWSAssert([TSAccountManager localNumber] != nil);
+    OWSAssertDebug([TSAccountManager localNumber] != nil);
     return [PhoneNumber bestEffortFormatPartialUserSpecifiedTextToLookLikeAPhoneNumber:[TSAccountManager localNumber]];
 }
 
@@ -281,44 +269,44 @@ NS_ASSUME_NONNULL_BEGIN
     [self startActivityIndicator];
     OWSProdInfo([OWSAnalyticsEvents registrationRegisteringCode]);
     __weak CodeVerificationViewController *weakSelf = self;
-    [self.accountManager registerWithVerificationCode:[self validationCodeFromTextField] pin:nil]
-        .then(^{
-            OWSProdInfo([OWSAnalyticsEvents registrationRegisteringSubmittedCode]);
+    [[self.accountManager registerObjcWithVerificationCode:[self validationCodeFromTextField] pin:nil]
+            .then(^{
+                OWSProdInfo([OWSAnalyticsEvents registrationRegisteringSubmittedCode]);
 
-            DDLogInfo(@"%@ Successfully registered Signal account.", weakSelf.logTag);
-            dispatch_async(dispatch_get_main_queue(), ^{
-                [weakSelf stopActivityIndicator];
-                [weakSelf verificationWasCompleted];
-            });
-        })
-        .catch(^(NSError *error) {
-            DDLogError(@"%@ error: %@, %@, %zd", weakSelf.logTag, [error class], error.domain, error.code);
-            OWSProdInfo([OWSAnalyticsEvents registrationRegistrationFailed]);
-            DDLogError(@"%@ error verifying challenge: %@", weakSelf.logTag, error);
-            dispatch_async(dispatch_get_main_queue(), ^{
-                [weakSelf stopActivityIndicator];
+                OWSLogInfo(@"Successfully registered Signal account.");
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [weakSelf stopActivityIndicator];
+                    [weakSelf verificationWasCompleted];
+                });
+            })
+            .catch(^(NSError *error) {
+                OWSLogError(@"error: %@, %@, %zd", [error class], error.domain, error.code);
+                OWSProdInfo([OWSAnalyticsEvents registrationRegistrationFailed]);
+                OWSLogError(@"error verifying challenge: %@", error);
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [weakSelf stopActivityIndicator];
 
-                if ([error.domain isEqualToString:OWSSignalServiceKitErrorDomain]
-                    && error.code == OWSErrorCodeRegistrationMissing2FAPIN) {
-                    CodeVerificationViewController *strongSelf = weakSelf;
-                    if (!strongSelf) {
-                        return;
+                    if ([error.domain isEqualToString:OWSSignalServiceKitErrorDomain]
+                        && error.code == OWSErrorCodeRegistrationMissing2FAPIN) {
+                        CodeVerificationViewController *strongSelf = weakSelf;
+                        if (!strongSelf) {
+                            return;
+                        }
+                        OWSLogInfo(@"Showing 2FA registration view.");
+                        OWS2FARegistrationViewController *viewController = [OWS2FARegistrationViewController new];
+                        viewController.verificationCode = strongSelf.validationCodeFromTextField;
+                        [strongSelf.navigationController pushViewController:viewController animated:YES];
+                    } else {
+                        [weakSelf presentAlertWithVerificationError:error];
+                        [weakSelf.challengeTextField becomeFirstResponder];
                     }
-                    DDLogInfo(@"%@ Showing 2FA registration view.", strongSelf.logTag);
-                    OWS2FARegistrationViewController *viewController = [OWS2FARegistrationViewController new];
-                    viewController.verificationCode = strongSelf.validationCodeFromTextField;
-                    [strongSelf.navigationController pushViewController:viewController animated:YES];
-                } else {
-                    [weakSelf presentAlertWithVerificationError:error];
-                    [weakSelf.challengeTextField becomeFirstResponder];
-                }
-            });
-        });
+                });
+            }) retainUntilComplete];
 }
 
 - (void)verificationWasCompleted
 {
-    [ProfileViewController presentForRegistration:self.navigationController];
+    [RegistrationController verificationWasCompletedFromView:self];
 }
 
 - (void)presentAlertWithVerificationError:(NSError *)error
@@ -352,13 +340,14 @@ NS_ASSUME_NONNULL_BEGIN
 
     [_requestCodeAgainSpinner startAnimating];
     __weak CodeVerificationViewController *weakSelf = self;
-    [TSAccountManager rerequestSMSWithSuccess:^{
-        DDLogInfo(@"%@ Successfully requested SMS code", weakSelf.logTag);
-        [weakSelf enableServerActions:YES];
-        [weakSelf.requestCodeAgainSpinner stopAnimating];
-    }
+    [self.tsAccountManager
+        rerequestSMSWithSuccess:^{
+            OWSLogInfo(@"Successfully requested SMS code");
+            [weakSelf enableServerActions:YES];
+            [weakSelf.requestCodeAgainSpinner stopAnimating];
+        }
         failure:^(NSError *error) {
-            DDLogError(@"%@ Failed to request SMS code with error: %@", weakSelf.logTag, error);
+            OWSLogError(@"Failed to request SMS code with error: %@", error);
             [weakSelf showRegistrationErrorMessage:error];
             [weakSelf enableServerActions:YES];
             [weakSelf.requestCodeAgainSpinner stopAnimating];
@@ -374,14 +363,15 @@ NS_ASSUME_NONNULL_BEGIN
 
     [_requestCallSpinner startAnimating];
     __weak CodeVerificationViewController *weakSelf = self;
-    [TSAccountManager rerequestVoiceWithSuccess:^{
-        DDLogInfo(@"%@ Successfully requested voice code", weakSelf.logTag);
+    [self.tsAccountManager
+        rerequestVoiceWithSuccess:^{
+            OWSLogInfo(@"Successfully requested voice code");
 
-        [weakSelf enableServerActions:YES];
-        [weakSelf.requestCallSpinner stopAnimating];
-    }
+            [weakSelf enableServerActions:YES];
+            [weakSelf.requestCallSpinner stopAnimating];
+        }
         failure:^(NSError *error) {
-            DDLogError(@"%@ Failed to request voice code with error: %@", weakSelf.logTag, error);
+            OWSLogError(@"Failed to request voice code with error: %@", error);
             [weakSelf showRegistrationErrorMessage:error];
             [weakSelf enableServerActions:YES];
             [weakSelf.requestCallSpinner stopAnimating];
@@ -505,6 +495,13 @@ NS_ASSUME_NONNULL_BEGIN
 - (UIStatusBarStyle)preferredStatusBarStyle
 {
     return UIStatusBarStyleLightContent;
+}
+
+#pragma mark - Orientation
+
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations
+{
+    return UIInterfaceOrientationMaskPortrait;
 }
 
 @end

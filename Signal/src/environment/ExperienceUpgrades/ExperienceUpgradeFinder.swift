@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 import Foundation
@@ -10,12 +10,14 @@ enum ExperienceUpgradeId: String {
     callKit = "002",
     introducingProfiles = "003",
     introducingReadReceipts = "004",
-    introducingCustomNotificationAudio = "005"
+    introducingCustomNotificationAudio = "005",
+    introducingTypingIndicators = "006",
+    introducingLinkPreviews = "007"
 }
 
 @objc public class ExperienceUpgradeFinder: NSObject {
 
-    // MARK - Singleton class
+    // MARK: - Singleton class
 
     @objc(sharedManager)
     public static let shared = ExperienceUpgradeFinder()
@@ -61,6 +63,28 @@ enum ExperienceUpgradeId: String {
                                  image: #imageLiteral(resourceName: "introductory_splash_custom_audio"))
     }
 
+    var typingIndicators: ExperienceUpgrade {
+        return ExperienceUpgrade(uniqueId: ExperienceUpgradeId.introducingTypingIndicators.rawValue,
+                                 title: NSLocalizedString("UPGRADE_EXPERIENCE_INTRODUCING_TYPING_INDICATORS_TITLE", comment: "Header for upgrading users"),
+                                 body: NSLocalizedString("UPGRADE_EXPERIENCE_INTRODUCING_TYPING_INDICATORS_DESCRIPTION", comment: "Body text for upgrading users"),
+                                 image: #imageLiteral(resourceName: "introductory_splash_custom_audio"))
+    }
+
+    var linkPreviews: ExperienceUpgrade {
+        let imageName = Theme.isDarkThemeEnabled ? "introducing-link-previews-dark" : "introducing-link-previews-light"
+        let image: UIImage
+        if let heroImage = UIImage(named: imageName) {
+            image = heroImage
+        } else {
+            owsFailDebug("Could not load hero image.")
+            image = #imageLiteral(resourceName: "introductory_splash_custom_audio")
+        }
+        return ExperienceUpgrade(uniqueId: ExperienceUpgradeId.introducingLinkPreviews.rawValue,
+                                 title: NSLocalizedString("UPGRADE_EXPERIENCE_INTRODUCING_LINK_PREVIEWS_TITLE", comment: "Header for upgrading users"),
+                                 body: NSLocalizedString("UPGRADE_EXPERIENCE_INTRODUCING_LINK_PREVIEWS_DESCRIPTION", comment: "Body text for upgrading users"),
+                                 image: image)
+    }
+
     // Keep these ordered by increasing uniqueId.
     @objc
     public var allExperienceUpgrades: [ExperienceUpgrade] {
@@ -73,7 +97,9 @@ enum ExperienceUpgradeId: String {
             // (UIDevice.current.supportsCallKit ? callKit : nil),
             // introducingProfiles,
             // introducingReadReceipts,
-            configurableNotificationAudio
+            // configurableNotificationAudio
+            // typingIndicators
+            linkPreviews
         ].compactMap { $0 }
     }
 
@@ -84,7 +110,7 @@ enum ExperienceUpgradeId: String {
     }
 
     @objc public func markAllAsSeen(transaction: YapDatabaseReadWriteTransaction) {
-        Logger.info("\(logTag) marking experience upgrades as seen")
+        Logger.info("marking experience upgrades as seen")
         allExperienceUpgrades.forEach { $0.save(with: transaction) }
     }
 }

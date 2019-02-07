@@ -10,6 +10,7 @@ NS_ASSUME_NONNULL_BEGIN
 extern NSString *const OWSContactsManagerSignalAccountsDidChangeNotification;
 
 @class ImageCache;
+@class OWSPrimaryStorage;
 @class SignalAccount;
 @class UIFont;
 
@@ -20,7 +21,9 @@ extern NSString *const OWSContactsManagerSignalAccountsDidChangeNotification;
 
 #pragma mark - Setup
 
-- (void)startObserving;
+- (instancetype)init NS_UNAVAILABLE;
+
+- (id)initWithPrimaryStorage:(OWSPrimaryStorage *)primaryStorage;
 
 #pragma mark - Accessors
 
@@ -32,10 +35,12 @@ extern NSString *const OWSContactsManagerSignalAccountsDidChangeNotification;
 
 // order of the signalAccounts array respects the systems contact sorting preference
 @property (atomic, readonly) NSArray<SignalAccount *> *signalAccounts;
-- (nullable SignalAccount *)signalAccountForRecipientId:(NSString *)recipientId;
-- (BOOL)hasSignalAccountForRecipientId:(NSString *)recipientId;
 
-- (void)loadSignalAccountsFromCache;
+// This will return an instance of SignalAccount for _known_ signal accounts.
+- (nullable SignalAccount *)fetchSignalAccountForRecipientId:(NSString *)recipientId;
+// This will always return an instance of SignalAccount.
+- (SignalAccount *)fetchOrBuildSignalAccountForRecipientId:(NSString *)recipientId;
+- (BOOL)hasSignalAccountForRecipientId:(NSString *)recipientId;
 
 #pragma mark - System Contact Fetching
 
@@ -45,6 +50,8 @@ extern NSString *const OWSContactsManagerSignalAccountsDidChangeNotification;
 @property (nonatomic, readonly) BOOL systemContactsHaveBeenRequestedAtLeastOnce;
 
 @property (nonatomic, readonly) BOOL supportsContactEditing;
+
+@property (atomic, readonly) BOOL isSetup;
 
 // Request systems contacts and start syncing changes. The user will see an alert
 // if they haven't previously.
@@ -65,7 +72,6 @@ extern NSString *const OWSContactsManagerSignalAccountsDidChangeNotification;
 - (BOOL)isSystemContact:(NSString *)recipientId;
 - (BOOL)isSystemContactWithSignalAccount:(NSString *)recipientId;
 - (BOOL)hasNameInSystemContactsForRecipientId:(NSString *)recipientId;
-- (NSString *)displayNameForPhoneIdentifier:(nullable NSString *)identifier;
 - (NSString *)displayNameForSignalAccount:(SignalAccount *)signalAccount;
 
 /**

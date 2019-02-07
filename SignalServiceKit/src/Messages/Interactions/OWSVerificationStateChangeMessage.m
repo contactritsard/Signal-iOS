@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2017 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
 //
 
 #import "OWSVerificationStateChangeMessage.h"
@@ -15,7 +15,7 @@ NS_ASSUME_NONNULL_BEGIN
                 verificationState:(OWSVerificationState)verificationState
                     isLocalChange:(BOOL)isLocalChange
 {
-    OWSAssert(recipientId.length > 0);
+    OWSAssertDebug(recipientId.length > 0);
 
     self = [super initWithTimestamp:timestamp inThread:thread messageType:TSInfoMessageVerificationStateChange];
     if (!self) {

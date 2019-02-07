@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 import Foundation
@@ -7,14 +7,14 @@ import Foundation
 // Create a searchable index for objects of type T
 public class SearchIndexer<T> {
 
-    private let indexBlock: (T) -> String
+    private let indexBlock: (T, YapDatabaseReadTransaction) -> String
 
-    public init(indexBlock: @escaping (T) -> String) {
+    public init(indexBlock: @escaping (T, YapDatabaseReadTransaction) -> String) {
         self.indexBlock = indexBlock
     }
 
-    public func index(_ item: T) -> String {
-        return normalize(indexingText: indexBlock(item))
+    public func index(_ item: T, transaction: YapDatabaseReadTransaction) -> String {
+        return normalize(indexingText: indexBlock(item, transaction))
     }
 
     private func normalize(indexingText: String) -> String {
@@ -24,6 +24,12 @@ public class SearchIndexer<T> {
 
 @objc
 public class FullTextSearchFinder: NSObject {
+
+    // MARK: - Dependencies
+
+    private static var tsAccountManager: TSAccountManager {
+        return TSAccountManager.sharedInstance()
+    }
 
     // MARK: - Querying
 
@@ -81,13 +87,13 @@ public class FullTextSearchFinder: NSObject {
 
     public func enumerateObjects(searchText: String, transaction: YapDatabaseReadTransaction, block: @escaping (Any, String) -> Void) {
         guard let ext: YapDatabaseFullTextSearchTransaction = ext(transaction: transaction) else {
-            owsFail("\(logTag) ext was unexpectedly nil")
+            owsFailDebug("ext was unexpectedly nil")
             return
         }
 
         let query = FullTextSearchFinder.query(searchText: searchText)
 
-        Logger.verbose("\(logTag) query: \(query)")
+        Logger.verbose("query: \(query)")
 
         let maxSearchResults = 500
         var searchResultCount = 0
@@ -129,61 +135,65 @@ public class FullTextSearchFinder: NSObject {
         return charactersToFilter
     }()
 
+    // This is a hot method, especially while running large migrations.
+    // Changes to it should go through a profiler to make sure large migrations
+    // aren't adversely affected.
     public class func normalize(text: String) -> String {
         // 1. Filter out invalid characters.
-        let filtered = text.unicodeScalars.lazy.filter({
-            !charactersToRemove.contains($0)
-        })
+        let filtered = text.removeCharacters(characterSet: charactersToRemove)
 
         // 2. Simplify whitespace.
-        let simplifyingFunction: (UnicodeScalar) -> UnicodeScalar = {
-            if CharacterSet.whitespacesAndNewlines.contains($0) {
-                return UnicodeScalar(" ")
-            } else {
-                return $0
-            }
-        }
-        let simplified = filtered.map(simplifyingFunction)
+        let simplified = filtered.replaceCharacters(characterSet: .whitespacesAndNewlines,
+                                                    replacement: " ")
 
         // 3. Strip leading & trailing whitespace last, since we may replace
         // filtered characters with whitespace.
-        let result = String(String.UnicodeScalarView(simplified))
-        return result.trimmingCharacters(in: .whitespacesAndNewlines)
+        return simplified.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - Index Building
 
     private class var contactsManager: ContactsManagerProtocol {
-        return TextSecureKitEnv.shared().contactsManager
+        return SSKEnvironment.shared.contactsManager
     }
 
-    private static let groupThreadIndexer: SearchIndexer<TSGroupThread> = SearchIndexer { (groupThread: TSGroupThread) in
+    private static let groupThreadIndexer: SearchIndexer<TSGroupThread> = SearchIndexer { (groupThread: TSGroupThread, transaction: YapDatabaseReadTransaction) in
         let groupName = groupThread.groupModel.groupName ?? ""
 
         let memberStrings = groupThread.groupModel.groupMemberIds.map { recipientId in
-            recipientIndexer.index(recipientId)
+            recipientIndexer.index(recipientId, transaction: transaction)
         }.joined(separator: " ")
 
         return "\(groupName) \(memberStrings)"
     }
 
-    private static let contactThreadIndexer: SearchIndexer<TSContactThread> = SearchIndexer { (contactThread: TSContactThread) in
+    private static let contactThreadIndexer: SearchIndexer<TSContactThread> = SearchIndexer { (contactThread: TSContactThread, transaction: YapDatabaseReadTransaction) in
         let recipientId =  contactThread.contactIdentifier()
-        return recipientIndexer.index(recipientId)
+        var result = recipientIndexer.index(recipientId, transaction: transaction)
+
+        if IsNoteToSelfEnabled(),
+            let localNumber = tsAccountManager.storedOrCachedLocalNumber(transaction),
+            localNumber == recipientId {
+
+            let noteToSelfLabel = NSLocalizedString("NOTE_TO_SELF", comment: "Label for 1:1 conversation with yourself.")
+            result += " \(noteToSelfLabel)"
+        }
+
+        return result
     }
 
-    private static let recipientIndexer: SearchIndexer<String> = SearchIndexer { (recipientId: String) in
-        let displayName = contactsManager.displayName(forPhoneIdentifier: recipientId)
+    private static let recipientIndexer: SearchIndexer<String> = SearchIndexer { (recipientId: String, transaction: YapDatabaseReadTransaction) in
+        let displayName = contactsManager.displayName(forPhoneIdentifier: recipientId, transaction: transaction)
 
         let nationalNumber: String = { (recipientId: String) -> String in
 
             guard let phoneNumber = PhoneNumber(fromE164: recipientId) else {
-                owsFail("\(logTag) unexpected unparseable recipientId: \(recipientId)")
+                owsFailDebug("unexpected unparseable recipientId: \(recipientId)")
                 return ""
             }
 
             guard let digitScalars = phoneNumber.nationalNumber?.unicodeScalars.filter({ CharacterSet.decimalDigits.contains($0) }) else {
-                owsFail("\(logTag) unexpected unparseable recipientId: \(recipientId)")
+                owsFailDebug("unexpected unparseable recipientId: \(recipientId)")
                 return ""
             }
 
@@ -193,58 +203,28 @@ public class FullTextSearchFinder: NSObject {
         return "\(recipientId) \(nationalNumber) \(displayName)"
     }
 
-    private static let messageIndexer: SearchIndexer<TSMessage> = SearchIndexer { (message: TSMessage) in
-        if let body = message.body, body.count > 0 {
-            return body
-        }
-        if let oversizeText = oversizeText(forMessage: message) {
-            return oversizeText
+    private static let messageIndexer: SearchIndexer<TSMessage> = SearchIndexer { (message: TSMessage, transaction: YapDatabaseReadTransaction) in
+        if let bodyText = message.bodyText(with: transaction) {
+            return bodyText
         }
         return ""
     }
 
-    private static func oversizeText(forMessage message: TSMessage) -> String? {
-        guard message.hasAttachments() else {
-            return nil
-        }
-        let dbConnection = OWSPrimaryStorage.shared().dbReadConnection
-        var oversizeText: String?
-        dbConnection.read({ (transaction) in
-            guard let attachment = message.attachment(with: transaction) else {
-                // This can happen during the initial save of incoming messages.
-                Logger.warn("Could not load attachment for search indexing.")
-                return
-            }
-            guard let attachmentStream = attachment as? TSAttachmentStream else {
-                return
-            }
-            guard attachmentStream.isOversizeText() else {
-                return
-            }
-            guard let text = attachmentStream.readOversizeText() else {
-                owsFail("Could not load oversize text attachment")
-                return
-            }
-            oversizeText = text
-        })
-        return oversizeText
-    }
-
-    private class func indexContent(object: Any) -> String? {
+    private class func indexContent(object: Any, transaction: YapDatabaseReadTransaction) -> String? {
         if let groupThread = object as? TSGroupThread {
-            return self.groupThreadIndexer.index(groupThread)
+            return self.groupThreadIndexer.index(groupThread, transaction: transaction)
         } else if let contactThread = object as? TSContactThread {
-            guard contactThread.hasEverHadMessage else {
+            guard contactThread.shouldThreadBeVisible else {
                 // If we've never sent/received a message in a TSContactThread,
                 // then we want it to appear in the "Other Contacts" section rather
                 // than in the "Conversations" section.
                 return nil
             }
-            return self.contactThreadIndexer.index(contactThread)
+            return self.contactThreadIndexer.index(contactThread, transaction: transaction)
         } else if let message = object as? TSMessage {
-            return self.messageIndexer.index(message)
+            return self.messageIndexer.index(message, transaction: transaction)
         } else if let signalAccount = object as? SignalAccount {
-            return self.recipientIndexer.index(signalAccount.recipientId)
+            return self.recipientIndexer.index(signalAccount.recipientId, transaction: transaction)
         } else {
             return nil
         }
@@ -273,14 +253,12 @@ public class FullTextSearchFinder: NSObject {
     }
 
     private class var dbExtensionConfig: YapDatabaseFullTextSearch {
-        SwiftAssertIsOnMainThread(#function)
+        AssertIsOnMainThread()
 
         let contentColumnName = "content"
 
-        let handler = YapDatabaseFullTextSearchHandler.withObjectBlock { (dict: NSMutableDictionary, _: String, _: String, object: Any) in
-            if let content: String = indexContent(object: object) {
-                dict[contentColumnName] = content
-            }
+        let handler = YapDatabaseFullTextSearchHandler.withObjectBlock { (transaction: YapDatabaseReadTransaction, dict: NSMutableDictionary, _: String, _: String, object: Any) in
+            dict[contentColumnName] = indexContent(object: object, transaction: transaction)
         }
 
         // update search index on contact name changes?

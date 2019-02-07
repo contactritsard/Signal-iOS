@@ -3,7 +3,7 @@
 //
 
 #import "AppReadiness.h"
-#import "Threading.h"
+#import <SignalCoreKit/Threading.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -11,7 +11,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property (atomic) BOOL isAppReady;
 
-@property (nonatomic, nullable) NSMutableArray<AppReadyBlock> *appReadyBlocks;
+@property (nonatomic) NSMutableArray<AppReadyBlock> *appWillBecomeReadyBlocks;
+@property (nonatomic) NSMutableArray<AppReadyBlock> *appDidBecomeReadyBlocks;
 
 @end
 
@@ -39,6 +40,9 @@ NS_ASSUME_NONNULL_BEGIN
 
     OWSSingletonAssert();
 
+    self.appWillBecomeReadyBlocks = [NSMutableArray new];
+    self.appDidBecomeReadyBlocks = [NSMutableArray new];
+
     return self;
 }
 
@@ -47,27 +51,54 @@ NS_ASSUME_NONNULL_BEGIN
     return [self.sharedManager isAppReady];
 }
 
-+ (void)runNowOrWhenAppIsReady:(AppReadyBlock)block
++ (void)runNowOrWhenAppWillBecomeReady:(AppReadyBlock)block
 {
     DispatchMainThreadSafe(^{
-        [self.sharedManager runNowOrWhenAppIsReady:block];
+        [self.sharedManager runNowOrWhenAppWillBecomeReady:block];
     });
 }
 
-- (void)runNowOrWhenAppIsReady:(AppReadyBlock)block
+- (void)runNowOrWhenAppWillBecomeReady:(AppReadyBlock)block
 {
     OWSAssertIsOnMainThread();
-    OWSAssert(block);
+    OWSAssertDebug(block);
+
+    if (CurrentAppContext().isRunningTests) {
+        // We don't need to do any "on app ready" work in the tests.
+        return;
+    }
 
     if (self.isAppReady) {
         block();
         return;
     }
 
-    if (!self.appReadyBlocks) {
-        self.appReadyBlocks = [NSMutableArray new];
+    [self.appWillBecomeReadyBlocks addObject:block];
+}
+
++ (void)runNowOrWhenAppDidBecomeReady:(AppReadyBlock)block
+{
+    DispatchMainThreadSafe(^{
+        [self.sharedManager runNowOrWhenAppDidBecomeReady:block];
+    });
+}
+
+- (void)runNowOrWhenAppDidBecomeReady:(AppReadyBlock)block
+{
+    OWSAssertIsOnMainThread();
+    OWSAssertDebug(block);
+
+    if (CurrentAppContext().isRunningTests) {
+        // We don't need to do any "on app ready" work in the tests.
+        return;
     }
-    [self.appReadyBlocks addObject:block];
+
+    if (self.isAppReady) {
+        block();
+        return;
+    }
+
+    [self.appDidBecomeReadyBlocks addObject:block];
 }
 
 + (void)setAppIsReady
@@ -78,9 +109,9 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)setAppIsReady
 {
     OWSAssertIsOnMainThread();
-    OWSAssert(!self.isAppReady);
+    OWSAssertDebug(!self.isAppReady);
 
-    DDLogInfo(@"%@ %s", self.logTag, __PRETTY_FUNCTION__);
+    OWSLogInfo(@"");
 
     self.isAppReady = YES;
 
@@ -90,12 +121,20 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)runAppReadyBlocks
 {
     OWSAssertIsOnMainThread();
-    OWSAssert(self.isAppReady);
+    OWSAssertDebug(self.isAppReady);
 
-    for (AppReadyBlock block in self.appReadyBlocks) {
+    NSArray<AppReadyBlock> *appWillBecomeReadyBlocks = [self.appWillBecomeReadyBlocks copy];
+    [self.appWillBecomeReadyBlocks removeAllObjects];
+    NSArray<AppReadyBlock> *appDidBecomeReadyBlocks = [self.appDidBecomeReadyBlocks copy];
+    [self.appDidBecomeReadyBlocks removeAllObjects];
+
+    // We invoke the _will become_ blocks before the _did become_ blocks.
+    for (AppReadyBlock block in appWillBecomeReadyBlocks) {
         block();
     }
-    self.appReadyBlocks = nil;
+    for (AppReadyBlock block in appDidBecomeReadyBlocks) {
+        block();
+    }
 }
 
 @end

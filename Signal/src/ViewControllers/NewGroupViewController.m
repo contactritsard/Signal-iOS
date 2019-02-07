@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 #import "NewGroupViewController.h"
@@ -8,28 +8,26 @@
 #import "OWSNavigationController.h"
 #import "Signal-Swift.h"
 #import "SignalApp.h"
+#import <SignalCoreKit/NSDate+OWS.h>
+#import <SignalCoreKit/Randomness.h>
 #import <SignalMessaging/BlockListUIUtils.h>
 #import <SignalMessaging/ContactTableViewCell.h>
 #import <SignalMessaging/ContactsViewHelper.h>
 #import <SignalMessaging/Environment.h>
-#import <SignalMessaging/NSString+OWS.h>
 #import <SignalMessaging/OWSContactsManager.h>
 #import <SignalMessaging/OWSTableViewController.h>
 #import <SignalMessaging/SignalKeyingStorage.h>
 #import <SignalMessaging/UIUtil.h>
 #import <SignalMessaging/UIView+OWS.h>
 #import <SignalMessaging/UIViewController+OWS.h>
-#import <SignalServiceKit/NSDate+OWS.h>
+#import <SignalServiceKit/NSString+SSK.h>
 #import <SignalServiceKit/OWSMessageSender.h>
-#import <SignalServiceKit/SecurityUtils.h>
 #import <SignalServiceKit/SignalAccount.h>
 #import <SignalServiceKit/TSGroupModel.h>
 #import <SignalServiceKit/TSGroupThread.h>
 #import <SignalServiceKit/TSOutgoingMessage.h>
 
 NS_ASSUME_NONNULL_BEGIN
-
-const NSUInteger kNewGroupViewControllerAvatarWidth = 68;
 
 @interface NewGroupViewController () <UIImagePickerControllerDelegate,
     UITextFieldDelegate,
@@ -47,6 +45,8 @@ const NSUInteger kNewGroupViewControllerAvatarWidth = 68;
 @property (nonatomic, readonly) OWSTableViewController *tableViewController;
 @property (nonatomic, readonly) AvatarImageView *avatarView;
 @property (nonatomic, readonly) UITextField *groupNameTextField;
+
+@property (nonatomic, readonly) NSData *groupId;
 
 @property (nonatomic, nullable) UIImage *groupAvatar;
 @property (nonatomic) NSMutableSet<NSString *> *memberRecipientIds;
@@ -86,7 +86,9 @@ const NSUInteger kNewGroupViewControllerAvatarWidth = 68;
 
 - (void)commonInit
 {
-    _messageSender = [Environment current].messageSender;
+    _groupId = [Randomness generateRandomBytes:kGroupIdLength];
+
+    _messageSender = SSKEnvironment.shared.messageSender;
     _contactsViewHelper = [[ContactsViewHelper alloc] initWithDelegate:self];
     _avatarViewHelper = [AvatarViewHelper new];
     _avatarViewHelper.delegate = self;
@@ -124,9 +126,10 @@ const NSUInteger kNewGroupViewControllerAvatarWidth = 68;
     _tableViewController = [OWSTableViewController new];
     _tableViewController.delegate = self;
     [self.view addSubview:self.tableViewController.view];
-    [_tableViewController.view autoPinWidthToSuperview];
+    [self.tableViewController.view autoPinEdgeToSuperviewSafeArea:ALEdgeLeading];
+    [self.tableViewController.view autoPinEdgeToSuperviewSafeArea:ALEdgeTrailing];
     [_tableViewController.view autoPinEdge:ALEdgeTop toEdge:ALEdgeBottom ofView:firstSection];
-    [self autoPinViewToBottomOfViewControllerOrKeyboard:self.tableViewController.view];
+    [self autoPinViewToBottomOfViewControllerOrKeyboard:self.tableViewController.view avoidNotch:NO];
     self.tableViewController.tableView.rowHeight = UITableViewAutomaticDimension;
     self.tableViewController.tableView.estimatedRowHeight = 60;
 
@@ -151,16 +154,20 @@ const NSUInteger kNewGroupViewControllerAvatarWidth = 68;
     [threadInfoView addSubview:avatarView];
     [avatarView autoVCenterInSuperview];
     [avatarView autoPinLeadingToSuperviewMargin];
-    [avatarView autoSetDimension:ALDimensionWidth toSize:kNewGroupViewControllerAvatarWidth];
-    [avatarView autoSetDimension:ALDimensionHeight toSize:kNewGroupViewControllerAvatarWidth];
+    [avatarView autoSetDimension:ALDimensionWidth toSize:kLargeAvatarSize];
+    [avatarView autoSetDimension:ALDimensionHeight toSize:kLargeAvatarSize];
     [self updateAvatarView];
 
-    UITextField *groupNameTextField = [UITextField new];
+    UITextField *groupNameTextField = [OWSTextField new];
     _groupNameTextField = groupNameTextField;
-    groupNameTextField.textColor = [Theme primaryColor];
+    groupNameTextField.textColor = Theme.primaryColor;
     groupNameTextField.font = [UIFont ows_dynamicTypeTitle2Font];
-    groupNameTextField.placeholder
-        = NSLocalizedString(@"NEW_GROUP_NAMEGROUP_REQUEST_DEFAULT", @"Placeholder text for group name field");
+    groupNameTextField.attributedPlaceholder =
+        [[NSAttributedString alloc] initWithString:NSLocalizedString(@"NEW_GROUP_NAMEGROUP_REQUEST_DEFAULT",
+                                                       @"Placeholder text for group name field")
+                                        attributes:@{
+                                            NSForegroundColorAttributeName : Theme.secondaryColor,
+                                        }];
     groupNameTextField.delegate = self;
     [groupNameTextField addTarget:self
                            action:@selector(groupNameDidChange:)
@@ -223,11 +230,9 @@ const NSUInteger kNewGroupViewControllerAvatarWidth = 68;
                 addItem:[OWSTableItem
                             itemWithCustomCellBlock:^{
                                 NewGroupViewController *strongSelf = weakSelf;
-                                OWSCAssert(strongSelf);
+                                OWSCAssertDebug(strongSelf);
 
                                 ContactTableViewCell *cell = [ContactTableViewCell new];
-                                SignalAccount *signalAccount =
-                                    [contactsViewHelper signalAccountForRecipientId:recipientId];
                                 BOOL isCurrentMember = [strongSelf.memberRecipientIds containsObject:recipientId];
                                 BOOL isBlocked = [contactsViewHelper isRecipientIdBlocked:recipientId];
                                 if (isCurrentMember) {
@@ -239,15 +244,7 @@ const NSUInteger kNewGroupViewControllerAvatarWidth = 68;
                                     cell.accessoryMessage = NSLocalizedString(
                                         @"CONTACT_CELL_IS_BLOCKED", @"An indicator that a contact has been blocked.");
                                 }
-
-                                if (signalAccount) {
-                                    [cell configureWithSignalAccount:signalAccount
-                                                     contactsManager:contactsViewHelper.contactsManager];
-                                } else {
-                                    [cell configureWithRecipientId:recipientId
-                                                   contactsManager:contactsViewHelper.contactsManager];
-                                }
-
+                                [cell configureWithRecipientId:recipientId];
                                 return cell;
                             }
                             customRowHeight:UITableViewAutomaticDimension
@@ -318,7 +315,7 @@ const NSUInteger kNewGroupViewControllerAvatarWidth = 68;
                 addItem:[OWSTableItem
                             itemWithCustomCellBlock:^{
                                 NewGroupViewController *strongSelf = weakSelf;
-                                OWSCAssert(strongSelf);
+                                OWSCAssertDebug(strongSelf);
 
                                 ContactTableViewCell *cell = [ContactTableViewCell new];
 
@@ -335,9 +332,7 @@ const NSUInteger kNewGroupViewControllerAvatarWidth = 68;
                                         @"CONTACT_CELL_IS_BLOCKED", @"An indicator that a contact has been blocked.");
                                 }
 
-                                [cell configureWithSignalAccount:signalAccount
-                                                 contactsManager:contactsViewHelper.contactsManager];
-
+                                [cell configureWithRecipientId:signalAccount.recipientId];
                                 return cell;
                             }
                             customRowHeight:UITableViewAutomaticDimension
@@ -410,7 +405,7 @@ const NSUInteger kNewGroupViewControllerAvatarWidth = 68;
 
 - (void)removeRecipientId:(NSString *)recipientId
 {
-    OWSAssert(recipientId.length > 0);
+    OWSAssertDebug(recipientId.length > 0);
 
     [self.memberRecipientIds removeObject:recipientId];
     [self updateTableContents];
@@ -418,7 +413,7 @@ const NSUInteger kNewGroupViewControllerAvatarWidth = 68;
 
 - (void)addRecipientId:(NSString *)recipientId
 {
-    OWSAssert(recipientId.length > 0);
+    OWSAssertDebug(recipientId.length > 0);
 
     [self.memberRecipientIds addObject:recipientId];
     self.hasUnsavedChanges = YES;
@@ -450,38 +445,33 @@ const NSUInteger kNewGroupViewControllerAvatarWidth = 68;
         readWriteWithBlock:^(YapDatabaseReadWriteTransaction *_Nonnull transaction) {
             thread = [TSGroupThread getOrCreateThreadWithGroupModel:model transaction:transaction];
         }];
-    OWSAssert(thread);
+    OWSAssertDebug(thread);
     
     [OWSProfileManager.sharedManager addThreadToProfileWhitelist:thread];
 
     void (^successHandler)(void) = ^{
-        DDLogError(@"Group creation successful.");
+        OWSLogError(@"Group creation successful.");
 
         dispatch_async(dispatch_get_main_queue(), ^{
-            [self dismissViewControllerAnimated:YES
-                                     completion:^{
-                                         // Pop to new group thread.
-                                         [SignalApp.sharedApp presentConversationForThread:thread];
-                                     }];
-
+            [SignalApp.sharedApp presentConversationForThread:thread action:ConversationViewActionCompose animated:NO];
+            [self.presentingViewController dismissViewControllerAnimated:YES completion:nil];
         });
     };
 
     void (^failureHandler)(NSError *error) = ^(NSError *error) {
-        DDLogError(@"Group creation failed: %@", error);
+        OWSLogError(@"Group creation failed: %@", error);
+
+        // Add an error message to the new group indicating
+        // that group creation didn't succeed.
+        // MJK TODO should be safe to remove senderTimestamp and just save immediately
+        TSErrorMessage *errorMessage = [[TSErrorMessage alloc] initWithTimestamp:[NSDate ows_millisecondTimeStamp]
+                                                                        inThread:thread
+                                                               failedMessageType:TSErrorMessageGroupCreationFailed];
+        [errorMessage save];
 
         dispatch_async(dispatch_get_main_queue(), ^{
-            [self dismissViewControllerAnimated:YES
-                                     completion:^{
-                                         // Add an error message to the new group indicating
-                                         // that group creation didn't succeed.
-                                         [[[TSErrorMessage alloc] initWithTimestamp:[NSDate ows_millisecondTimeStamp]
-                                                                           inThread:thread
-                                                                  failedMessageType:TSErrorMessageGroupCreationFailed]
-                                             save];
-
-                                         [SignalApp.sharedApp presentConversationForThread:thread];
-                                     }];
+            [SignalApp.sharedApp presentConversationForThread:thread action:ConversationViewActionCompose animated:NO];
+            [self.presentingViewController dismissViewControllerAnimated:YES completion:nil];
         });
     };
 
@@ -490,7 +480,7 @@ const NSUInteger kNewGroupViewControllerAvatarWidth = 68;
                         canCancel:NO
                   backgroundBlock:^(ModalActivityIndicatorViewController *modalActivityIndicator) {
                       TSOutgoingMessage *message = [TSOutgoingMessage outgoingMessageInThread:thread
-                                                                             groupMetaMessage:TSGroupMessageNew
+                                                                             groupMetaMessage:TSGroupMetaMessageNew
                                                                              expiresInSeconds:0];
 
                       [message updateWithCustomMessage:NSLocalizedString(@"GROUP_CREATED", nil)];
@@ -500,14 +490,17 @@ const NSUInteger kNewGroupViewControllerAvatarWidth = 68;
                               NSData *data = UIImagePNGRepresentation(model.groupImage);
                               DataSource *_Nullable dataSource =
                                   [DataSourceValue dataSourceWithData:data fileExtension:@"png"];
-                              [self.messageSender enqueueAttachment:dataSource
-                                                        contentType:OWSMimeTypeImagePng
-                                                     sourceFilename:nil
-                                                          inMessage:message
-                                                            success:successHandler
-                                                            failure:failureHandler];
+                              // CLEANUP DURABLE - Replace with a durable operation e.g. `GroupCreateJob`, which creates
+                              // an error in the thread if group creation fails
+                              [self.messageSender sendTemporaryAttachment:dataSource
+                                                              contentType:OWSMimeTypeImagePng
+                                                                inMessage:message
+                                                                  success:successHandler
+                                                                  failure:failureHandler];
                           } else {
-                              [self.messageSender enqueueMessage:message success:successHandler failure:failureHandler];
+                              // CLEANUP DURABLE - Replace with a durable operation e.g. `GroupCreateJob`, which creates
+                              // an error in the thread if group creation fails
+                              [self.messageSender sendMessage:message success:successHandler failure:failureHandler];
                           }
                       });
                   }];
@@ -518,8 +511,10 @@ const NSUInteger kNewGroupViewControllerAvatarWidth = 68;
     NSString *groupName = [self.groupNameTextField.text ows_stripped];
     NSMutableArray<NSString *> *recipientIds = [self.memberRecipientIds.allObjects mutableCopy];
     [recipientIds addObject:[self.contactsViewHelper localNumber]];
-    NSData *groupId = [SecurityUtils generateRandomBytes:16];
-    return [[TSGroupModel alloc] initWithTitle:groupName memberIds:recipientIds image:self.groupAvatar groupId:groupId];
+    return [[TSGroupModel alloc] initWithTitle:groupName
+                                     memberIds:recipientIds
+                                         image:self.groupAvatar
+                                       groupId:self.groupId];
 }
 
 #pragma mark - Group Avatar
@@ -542,7 +537,14 @@ const NSUInteger kNewGroupViewControllerAvatarWidth = 68;
 
 - (void)updateAvatarView
 {
-    self.avatarView.image = (self.groupAvatar ?: [UIImage imageNamed:@"empty-group-avatar"]);
+    UIImage *_Nullable groupAvatar = self.groupAvatar;
+    if (!groupAvatar) {
+        NSString *conversationColorName = [TSGroupThread defaultConversationColorNameForGroupId:self.groupId];
+        groupAvatar = [OWSGroupAvatarBuilder defaultAvatarForGroupId:self.groupId
+                                               conversationColorName:conversationColorName
+                                                            diameter:kLargeAvatarSize];
+    }
+    self.avatarView.image = groupAvatar;
 }
 
 #pragma mark - Event Handling
@@ -619,7 +621,7 @@ const NSUInteger kNewGroupViewControllerAvatarWidth = 68;
 - (void)avatarDidChange:(UIImage *)image
 {
     OWSAssertIsOnMainThread();
-    OWSAssert(image);
+    OWSAssertDebug(image);
 
     self.groupAvatar = image;
 }
@@ -643,7 +645,7 @@ const NSUInteger kNewGroupViewControllerAvatarWidth = 68;
 
 - (BOOL)isRecipientGroupMember:(NSString *)recipientId
 {
-    OWSAssert(recipientId.length > 0);
+    OWSAssertDebug(recipientId.length > 0);
 
     return [self.memberRecipientIds containsObject:recipientId];
 }

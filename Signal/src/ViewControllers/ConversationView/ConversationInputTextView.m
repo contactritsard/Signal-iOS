@@ -1,10 +1,10 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 #import "ConversationInputTextView.h"
 #import "Signal-Swift.h"
-#import <SignalMessaging/NSString+OWS.h>
+#import <SignalServiceKit/NSString+SSK.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -26,10 +26,7 @@ NS_ASSUME_NONNULL_BEGIN
         [self setTranslatesAutoresizingMaskIntoConstraints:NO];
 
         self.delegate = self;
-
-        self.backgroundColor = [UIColor ows_light02Color];
-        self.layer.borderColor = [UIColor.ows_blackColor colorWithAlphaComponent:0.12f].CGColor;
-        self.layer.borderWidth = 0.5f;
+        self.backgroundColor = nil;
 
         self.scrollIndicatorInsets = UIEdgeInsetsMake(4, 4, 4, 4);
 
@@ -38,7 +35,7 @@ NS_ASSUME_NONNULL_BEGIN
         self.userInteractionEnabled = YES;
 
         self.font = [UIFont ows_dynamicTypeBodyFont];
-        self.textColor = [UIColor blackColor];
+        self.textColor = Theme.primaryColor;
         self.textAlignment = NSTextAlignmentNatural;
 
         self.contentMode = UIViewContentModeRedraw;
@@ -48,13 +45,20 @@ NS_ASSUME_NONNULL_BEGIN
 
         self.placeholderView = [UILabel new];
         self.placeholderView.text = NSLocalizedString(@"new_message", @"");
-        self.placeholderView.textColor = UIColor.ows_light35Color;
+        self.placeholderView.textColor = Theme.placeholderColor;
         self.placeholderView.userInteractionEnabled = NO;
         [self addSubview:self.placeholderView];
 
         // We need to do these steps _after_ placeholderView is configured.
         self.font = [UIFont ows_dynamicTypeBodyFont];
-        self.textContainerInset = UIEdgeInsetsMake(7.0f, 12.0f, 7.0f, 12.0f);
+        CGFloat hMarginLeading = 12.f;
+        CGFloat hMarginTrailing = 24.f;
+        self.textContainerInset = UIEdgeInsetsMake(7.f,
+            CurrentAppContext().isRTL ? hMarginTrailing : hMarginLeading,
+            7.f,
+            CurrentAppContext().isRTL ? hMarginLeading : hMarginTrailing);
+        self.textContainer.lineFragmentPadding = 0;
+        self.contentInset = UIEdgeInsetsZero;
 
         [self ensurePlaceholderConstraints];
         [self updatePlaceholderVisibility];
@@ -62,6 +66,8 @@ NS_ASSUME_NONNULL_BEGIN
 
     return self;
 }
+
+#pragma mark -
 
 - (void)setFont:(UIFont *_Nullable)font
 {
@@ -95,7 +101,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)ensurePlaceholderConstraints
 {
-    OWSAssert(self.placeholderView);
+    OWSAssertDebug(self.placeholderView);
 
     if (self.placeholderConstraints) {
         [NSLayoutConstraint deactivateConstraints:self.placeholderConstraints];
@@ -174,10 +180,12 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)textViewDidChange:(UITextView *)textView
 {
-    OWSAssert(self.textViewToolbarDelegate);
+    OWSAssertDebug(self.inputTextViewDelegate);
+    OWSAssertDebug(self.textViewToolbarDelegate);
 
     [self updatePlaceholderVisibility];
 
+    [self.inputTextViewDelegate textViewDidChange:self];
     [self.textViewToolbarDelegate textViewDidChange:self];
 }
 
@@ -218,7 +226,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)modifiedReturnPressed:(UIKeyCommand *)sender
 {
-    DDLogInfo(@"%@ modifiedReturnPressed: %@", self.logTag, sender.input);
+    OWSLogInfo(@"modifiedReturnPressed: %@", sender.input);
     [self.inputTextViewDelegate inputTextViewSendMessagePressed];
 }
 

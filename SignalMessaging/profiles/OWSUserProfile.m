@@ -3,11 +3,16 @@
 //
 
 #import "OWSUserProfile.h"
-#import "NSString+OWS.h"
+#import <PromiseKit/AnyPromise.h>
+#import <SignalCoreKit/Cryptography.h>
+#import <SignalCoreKit/NSData+OWS.h>
 #import <SignalServiceKit/AppContext.h>
-#import <SignalServiceKit/Cryptography.h>
-#import <SignalServiceKit/NSData+OWS.h>
 #import <SignalServiceKit/NSNotificationCenter+OWS.h>
+#import <SignalServiceKit/NSString+SSK.h>
+#import <SignalServiceKit/OWSFileSystem.h>
+#import <SignalServiceKit/OWSPrimaryStorage.h>
+#import <SignalServiceKit/SSKEnvironment.h>
+#import <SignalServiceKit/SignalServiceKit-Swift.h>
 #import <SignalServiceKit/TSAccountManager.h>
 #import <YapDatabase/YapDatabaseConnection.h>
 #import <YapDatabase/YapDatabaseTransaction.h>
@@ -37,6 +42,7 @@ NSString *const kLocalProfileUniqueId = @"kLocalProfileUniqueId";
 @implementation OWSUserProfile
 
 @synthesize avatarUrlPath = _avatarUrlPath;
+@synthesize avatarFileName = _avatarFileName;
 @synthesize profileName = _profileName;
 
 + (NSString *)collection
@@ -48,7 +54,7 @@ NSString *const kLocalProfileUniqueId = @"kLocalProfileUniqueId";
 + (OWSUserProfile *)getOrBuildUserProfileForRecipientId:(NSString *)recipientId
                                            dbConnection:(YapDatabaseConnection *)dbConnection
 {
-    OWSAssert(recipientId.length > 0);
+    OWSAssertDebug(recipientId.length > 0);
 
     __block OWSUserProfile *userProfile;
     [dbConnection readWithBlock:^(YapDatabaseReadTransaction *transaction) {
@@ -65,7 +71,7 @@ NSString *const kLocalProfileUniqueId = @"kLocalProfileUniqueId";
         }
     }
 
-    OWSAssert(userProfile);
+    OWSAssertDebug(userProfile);
 
     return userProfile;
 }
@@ -88,11 +94,27 @@ NSString *const kLocalProfileUniqueId = @"kLocalProfileUniqueId";
         return self;
     }
 
-    OWSAssert(recipientId.length > 0);
+    OWSAssertDebug(recipientId.length > 0);
     _recipientId = recipientId;
 
     return self;
 }
+
+#pragma mark - Dependencies
+
+- (id<OWSSyncManagerProtocol>)syncManager
+{
+    return SSKEnvironment.shared.syncManager;
+}
+
+- (TSAccountManager *)tsAccountManager
+{
+    OWSAssertDebug(SSKEnvironment.shared.tsAccountManager);
+    
+    return SSKEnvironment.shared.tsAccountManager;
+}
+
+#pragma mark -
 
 - (nullable NSString *)avatarUrlPath
 {
@@ -113,8 +135,35 @@ NSString *const kLocalProfileUniqueId = @"kLocalProfileUniqueId";
         if (didChange) {
             // If the avatarURL changed, the avatarFileName can't be valid.
             // Clear it.
+
             self.avatarFileName = nil;
         }
+    }
+}
+
+- (nullable NSString *)avatarFileName
+{
+    @synchronized(self) {
+        return _avatarFileName;
+    }
+}
+
+- (void)setAvatarFileName:(nullable NSString *)avatarFileName
+{
+    @synchronized(self) {
+        BOOL didChange = ![NSObject isNullableObject:_avatarFileName equalTo:avatarFileName];
+        if (!didChange) {
+            return;
+        }
+
+        if (_avatarFileName) {
+            NSString *oldAvatarFilePath = [OWSUserProfile profileAvatarFilepathWithFilename:_avatarFileName];
+            dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+                [OWSFileSystem deleteFileIfExists:oldAvatarFilePath];
+            });
+        }
+
+        _avatarFileName = avatarFileName;
     }
 }
 
@@ -154,10 +203,7 @@ NSString *const kLocalProfileUniqueId = @"kLocalProfileUniqueId";
             NSDictionary *afterSnapshot = [latestInstance.dictionaryValue copy];
 
             if ([beforeSnapshot isEqual:afterSnapshot]) {
-                DDLogVerbose(@"%@ Ignoring redundant update in %s: %@",
-                    self.logTag,
-                    functionName,
-                    self.debugDescription);
+                OWSLogVerbose(@"Ignoring redundant update in %s: %@", functionName, self.debugDescription);
                 didChange = NO;
             } else {
                 [latestInstance saveWithTransaction:transaction];
@@ -182,8 +228,8 @@ NSString *const kLocalProfileUniqueId = @"kLocalProfileUniqueId";
             // We populate an initial (empty) profile on launch of a new install, but until
             // we have a registered account, syncing will fail (and there could not be any
             // linked device to sync to at this point anyway).
-            if ([TSAccountManager isRegistered]) {
-                [CurrentAppContext() doMultiDeviceUpdateWithProfileKey:self.profileKey];
+            if ([self.tsAccountManager isRegistered] && CurrentAppContext().isMainApp) {
+                [[self.syncManager syncLocalContact] retainUntilComplete];
             }
 
             [[NSNotificationCenter defaultCenter] postNotificationNameAsync:kNSNotificationName_LocalProfileDidChange
@@ -287,7 +333,7 @@ NSString *const kLocalProfileUniqueId = @"kLocalProfileUniqueId";
                 dbConnection:(YapDatabaseConnection *)dbConnection
                   completion:(nullable OWSUserProfileCompletion)completion
 {
-    OWSAssert(profileKey);
+    OWSAssertDebug(profileKey);
 
     [self applyChanges:^(OWSUserProfile *userProfile) {
         [userProfile setProfileKey:profileKey];
@@ -301,28 +347,28 @@ NSString *const kLocalProfileUniqueId = @"kLocalProfileUniqueId";
 
 - (YapDatabaseConnection *)dbReadConnection
 {
-    OWSFail(@"%@ UserProfile should always use OWSProfileManager's database connection.", self.logTag);
+    OWSFailDebug(@"UserProfile should always use OWSProfileManager's database connection.");
 
     return TSYapDatabaseObject.dbReadConnection;
 }
 
 + (YapDatabaseConnection *)dbReadConnection
 {
-    OWSFail(@"%@ UserProfile should always use OWSProfileManager's database connection.", self.logTag);
+    OWSFailDebug(@"UserProfile should always use OWSProfileManager's database connection.");
 
     return TSYapDatabaseObject.dbReadConnection;
 }
 
 - (YapDatabaseConnection *)dbReadWriteConnection
 {
-    OWSFail(@"%@ UserProfile should always use OWSProfileManager's database connection.", self.logTag);
+    OWSFailDebug(@"UserProfile should always use OWSProfileManager's database connection.");
 
     return TSYapDatabaseObject.dbReadWriteConnection;
 }
 
 + (YapDatabaseConnection *)dbReadWriteConnection
 {
-    OWSFail(@"%@ UserProfile should always use OWSProfileManager's database connection.", self.logTag);
+    OWSFailDebug(@"UserProfile should always use OWSProfileManager's database connection.");
 
     return TSYapDatabaseObject.dbReadWriteConnection;
 }
@@ -354,6 +400,84 @@ NSString *const kLocalProfileUniqueId = @"kLocalProfileUniqueId";
     {
         _profileName = profileName.filterStringForDisplay;
     }
+}
+
+#pragma mark - Profile Avatars Directory
+
++ (NSString *)profileAvatarFilepathWithFilename:(NSString *)filename
+{
+    OWSAssertDebug(filename.length > 0);
+
+    return [self.profileAvatarsDirPath stringByAppendingPathComponent:filename];
+}
+
++ (NSString *)legacyProfileAvatarsDirPath
+{
+    return [[OWSFileSystem appDocumentDirectoryPath] stringByAppendingPathComponent:@"ProfileAvatars"];
+}
+
++ (NSString *)sharedDataProfileAvatarsDirPath
+{
+    return [[OWSFileSystem appSharedDataDirectoryPath] stringByAppendingPathComponent:@"ProfileAvatars"];
+}
+
++ (nullable NSError *)migrateToSharedData
+{
+    OWSLogInfo(@"");
+
+    return [OWSFileSystem moveAppFilePath:self.legacyProfileAvatarsDirPath
+                       sharedDataFilePath:self.sharedDataProfileAvatarsDirPath];
+}
+
++ (NSString *)profileAvatarsDirPath
+{
+    static NSString *profileAvatarsDirPath = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        profileAvatarsDirPath = self.sharedDataProfileAvatarsDirPath;
+
+        [OWSFileSystem ensureDirectoryExists:profileAvatarsDirPath];
+    });
+    return profileAvatarsDirPath;
+}
+
+// TODO: We may want to clean up this directory in the "orphan cleanup" logic.
+
++ (void)resetProfileStorage
+{
+    OWSAssertIsOnMainThread();
+
+    NSError *error;
+    [[NSFileManager defaultManager] removeItemAtPath:[self profileAvatarsDirPath] error:&error];
+    if (error) {
+        OWSLogError(@"Failed to delete database: %@", error.description);
+    }
+}
+
++ (NSSet<NSString *> *)allProfileAvatarFilePaths
+{
+    NSString *profileAvatarsDirPath = self.profileAvatarsDirPath;
+    NSMutableSet<NSString *> *profileAvatarFilePaths = [NSMutableSet new];
+
+    [OWSPrimaryStorage.sharedManager.dbReadConnection readWithBlock:^(YapDatabaseReadTransaction *transaction) {
+        [OWSUserProfile
+            enumerateCollectionObjectsWithTransaction:transaction
+                                           usingBlock:^(id object, BOOL *stop) {
+                                               if (![object isKindOfClass:[OWSUserProfile class]]) {
+                                                   OWSFailDebug(
+                                                       @"unexpected object in user profiles: %@", [object class]);
+                                                   return;
+                                               }
+                                               OWSUserProfile *userProfile = object;
+                                               if (!userProfile.avatarFileName) {
+                                                   return;
+                                               }
+                                               NSString *filePath = [profileAvatarsDirPath
+                                                   stringByAppendingPathComponent:userProfile.avatarFileName];
+                                               [profileAvatarFilePaths addObject:filePath];
+                                           }];
+    }];
+    return [profileAvatarFilePaths copy];
 }
 
 @end

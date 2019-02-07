@@ -1,14 +1,17 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 #import "OWSPrimaryStorage.h"
 #import <AxolotlKit/PreKeyStore.h>
 
+NS_ASSUME_NONNULL_BEGIN
+
 @interface OWSPrimaryStorage (PreKeyStore) <PreKeyStore>
 
-- (NSArray *)generatePreKeyRecords;
-- (PreKeyRecord *)getOrGenerateLastResortKey;
-- (void)storePreKeyRecords:(NSArray *)preKeyRecords;
+- (NSArray<PreKeyRecord *> *)generatePreKeyRecords;
+- (void)storePreKeyRecords:(NSArray<PreKeyRecord *> *)preKeyRecords NS_SWIFT_NAME(storePreKeyRecords(_:));
 
 @end
+
+NS_ASSUME_NONNULL_END

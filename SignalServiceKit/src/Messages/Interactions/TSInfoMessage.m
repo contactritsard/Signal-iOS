@@ -1,11 +1,11 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 #import "TSInfoMessage.h"
 #import "ContactsManagerProtocol.h"
-#import "NSDate+OWS.h"
-#import "TextSecureKitEnv.h"
+#import "SSKEnvironment.h"
+#import <SignalCoreKit/NSDate+OWS.h>
 #import <YapDatabase/YapDatabaseConnection.h>
 
 NS_ASSUME_NONNULL_BEGIN
@@ -48,6 +48,7 @@ NSUInteger TSInfoMessageSchemaVersion = 1;
                          inThread:(TSThread *)thread
                       messageType:(TSInfoMessageType)infoMessage
 {
+    // MJK TODO - remove senderTimestamp
     self = [super initMessageWithTimestamp:timestamp
                                   inThread:thread
                                messageBody:nil
@@ -55,7 +56,8 @@ NSUInteger TSInfoMessageSchemaVersion = 1;
                           expiresInSeconds:0
                            expireStartedAt:0
                              quotedMessage:nil
-                              contactShare:nil];
+                              contactShare:nil
+                               linkPreview:nil];
 
     if (!self) {
         return self;
@@ -97,9 +99,10 @@ NSUInteger TSInfoMessageSchemaVersion = 1;
 
 + (instancetype)userNotRegisteredMessageInThread:(TSThread *)thread recipientId:(NSString *)recipientId
 {
-    OWSAssert(thread);
-    OWSAssert(recipientId);
+    OWSAssertDebug(thread);
+    OWSAssertDebug(recipientId);
 
+    // MJK TODO - remove senderTimestamp
     return [[self alloc] initWithTimestamp:[NSDate ows_millisecondTimeStamp]
                                   inThread:thread
                                messageType:TSInfoMessageUserNotRegistered
@@ -120,8 +123,9 @@ NSUInteger TSInfoMessageSchemaVersion = 1;
             return NSLocalizedString(@"UNSUPPORTED_ATTACHMENT", nil);
         case TSInfoMessageUserNotRegistered:
             if (self.unregisteredRecipientId.length > 0) {
-                id<ContactsManagerProtocol> contactsManager = [TextSecureKitEnv sharedEnv].contactsManager;
-                NSString *recipientName = [contactsManager displayNameForPhoneIdentifier:self.unregisteredRecipientId];
+                id<ContactsManagerProtocol> contactsManager = SSKEnvironment.shared.contactsManager;
+                NSString *recipientName = [contactsManager displayNameForPhoneIdentifier:self.unregisteredRecipientId
+                                                                             transaction:transaction];
                 return [NSString stringWithFormat:NSLocalizedString(@"ERROR_UNREGISTERED_USER_FORMAT",
                                                       @"Format string for 'unregistered user' error. Embeds {{the "
                                                       @"unregistered user's name or signal id}}."),
@@ -168,14 +172,13 @@ NSUInteger TSInfoMessageSchemaVersion = 1;
               sendReadReceipt:(BOOL)sendReadReceipt
                   transaction:(YapDatabaseReadWriteTransaction *)transaction
 {
-    OWSAssert(transaction);
+    OWSAssertDebug(transaction);
 
     if (_read) {
         return;
     }
 
-    DDLogDebug(
-        @"%@ marking as read uniqueId: %@ which has timestamp: %llu", self.logTag, self.uniqueId, self.timestamp);
+    OWSLogDebug(@"marking as read uniqueId: %@ which has timestamp: %llu", self.uniqueId, self.timestamp);
     _read = YES;
     [self saveWithTransaction:transaction];
     [self touchThreadWithTransaction:transaction];

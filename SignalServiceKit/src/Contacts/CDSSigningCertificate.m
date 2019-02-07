@@ -3,13 +3,19 @@
 //
 
 #import "CDSSigningCertificate.h"
-#import "Cryptography.h"
-#import "NSData+Base64.h"
-#import "NSData+OWS.h"
 #import <CommonCrypto/CommonCrypto.h>
+#import <SignalCoreKit/Cryptography.h>
+#import <SignalCoreKit/NSData+OWS.h>
 #import <openssl/x509.h>
 
 NS_ASSUME_NONNULL_BEGIN
+
+NSError *CDSSigningCertificateErrorMake(CDSSigningCertificateErrorCode code, NSString *localizedDescription)
+{
+    return [NSError errorWithDomain:@"CDSSigningCertificate"
+                               code:code
+                           userInfo:@{ NSLocalizedDescriptionKey : localizedDescription }];
+}
 
 @interface CDSSigningCertificate ()
 
@@ -50,33 +56,41 @@ NS_ASSUME_NONNULL_BEGIN
     }
 }
 
-+ (nullable CDSSigningCertificate *)parseCertificateFromPem:(NSString *)certificatePem
++ (nullable CDSSigningCertificate *)parseCertificateFromPem:(NSString *)certificatePem error:(NSError **)error
 {
-    OWSAssert(certificatePem);
+    OWSAssertDebug(certificatePem);
+    *error = nil;
 
     CDSSigningCertificate *signingCertificate = [CDSSigningCertificate new];
 
     NSArray<NSData *> *_Nullable anchorCertificates = [self anchorCertificates];
     if (anchorCertificates.count < 1) {
-        OWSProdLogAndFail(@"%@ Could not load anchor certificates.", self.logTag);
+        OWSFailDebug(@"Could not load anchor certificates.");
+        *error = CDSSigningCertificateErrorMake(
+            CDSSigningCertificateError_AssertionError, @"Could not load anchor certificates.");
         return nil;
     }
 
     NSArray<NSData *> *_Nullable certificateDerDatas = [self convertPemToDer:certificatePem];
 
     if (certificateDerDatas.count < 1) {
-        OWSProdLogAndFail(@"%@ Could not parse PEM.", self.logTag);
+        OWSFailDebug(@"Could not parse PEM.");
+        *error = CDSSigningCertificateErrorMake(CDSSigningCertificateError_InvalidPEMSupplied, @"Could not parse PEM.");
         return nil;
     }
 
     // The leaf is always the first certificate.
     NSData *_Nullable leafCertificateData = [certificateDerDatas firstObject];
     if (!leafCertificateData) {
-        DDLogError(@"%@ Could not extract leaf certificate data.", self.logTag);
+        OWSFailDebug(@"Could not extract leaf certificate data.");
+        *error = CDSSigningCertificateErrorMake(
+            CDSSigningCertificateError_CouldNotExtractLeafCertificate, @"Could not extract leaf certificate data.");
         return nil;
     }
     if (![self verifyDistinguishedNameOfCertificate:leafCertificateData]) {
-        OWSProdLogAndFail(@"%@ Leaf certificate has invalid name.", self.logTag);
+        OWSFailDebugUnlessRunningTests(@"Leaf certificate has invalid name.");
+        *error = CDSSigningCertificateErrorMake(
+            CDSSigningCertificateError_InvalidDistinguishedName, @"Could not extract leaf certificate data.");
         return nil;
     }
 
@@ -84,7 +98,9 @@ NS_ASSUME_NONNULL_BEGIN
     for (NSData *certificateDerData in certificateDerDatas) {
         SecCertificateRef certificate = SecCertificateCreateWithData(NULL, (__bridge CFDataRef)(certificateDerData));
         if (!certificate) {
-            OWSProdLogAndFail(@"%@ Could not load DER.", self.logTag);
+            OWSFailDebug(@"Could not create SecCertificate.");
+            *error = CDSSigningCertificateErrorMake(
+                CDSSigningCertificateError_AssertionError, @"Could not create SecCertificate.");
             return nil;
         }
         [certificates addObject:(__bridge_transfer id)certificate];
@@ -93,7 +109,8 @@ NS_ASSUME_NONNULL_BEGIN
     SecPolicyRef policy = SecPolicyCreateBasicX509();
     signingCertificate.policy = policy;
     if (!policy) {
-        DDLogError(@"%@ Could not create policy.", self.logTag);
+        OWSFailDebug(@"Could not create policy.");
+        *error = CDSSigningCertificateErrorMake(CDSSigningCertificateError_AssertionError, @"Could not create policy.");
         return nil;
     }
 
@@ -101,23 +118,30 @@ NS_ASSUME_NONNULL_BEGIN
     OSStatus status = SecTrustCreateWithCertificates((__bridge CFTypeRef)certificates, policy, &trust);
     signingCertificate.trust = trust;
     if (status != errSecSuccess) {
-        DDLogError(@"%@ trust could not be created.", self.logTag);
+        OWSFailDebug(@"Creating trust did not succeed.");
+        *error = CDSSigningCertificateErrorMake(
+            CDSSigningCertificateError_AssertionError, @"Creating trust did not succeed.");
         return nil;
     }
     if (!trust) {
-        DDLogError(@"%@ Could not create trust.", self.logTag);
+        OWSFailDebug(@"Could not create trust.");
+        *error = CDSSigningCertificateErrorMake(CDSSigningCertificateError_AssertionError, @"Could not create trust.");
         return nil;
     }
 
     status = SecTrustSetNetworkFetchAllowed(trust, NO);
     if (status != errSecSuccess) {
-        DDLogError(@"%@ trust fetch could not be configured.", self.logTag);
+        OWSFailDebug(@"trust fetch could not be configured.");
+        *error = CDSSigningCertificateErrorMake(
+            CDSSigningCertificateError_AssertionError, @"trust fetch could not be configured.");
         return nil;
     }
 
     status = SecTrustSetAnchorCertificatesOnly(trust, YES);
     if (status != errSecSuccess) {
-        DDLogError(@"%@ trust anchor certs could not be configured.", self.logTag);
+        OWSFailDebug(@"trust anchor certs could not be configured.");
+        *error = CDSSigningCertificateErrorMake(
+            CDSSigningCertificateError_AssertionError, @"trust anchor certs could not be configured.");
         return nil;
     }
 
@@ -125,7 +149,9 @@ NS_ASSUME_NONNULL_BEGIN
     for (NSData *certificateData in anchorCertificates) {
         SecCertificateRef certificate = SecCertificateCreateWithData(NULL, (__bridge CFDataRef)(certificateData));
         if (!certificate) {
-            OWSProdLogAndFail(@"%@ Could not load DER.", self.logTag);
+            OWSFailDebug(@"Could not create pinned SecCertificate.");
+            *error = CDSSigningCertificateErrorMake(
+                CDSSigningCertificateError_AssertionError, @"Could not create pinned SecCertificate.");
             return nil;
         }
 
@@ -133,14 +159,18 @@ NS_ASSUME_NONNULL_BEGIN
     }
     status = SecTrustSetAnchorCertificates(trust, (__bridge CFArrayRef)pinnedCertificates);
     if (status != errSecSuccess) {
-        DDLogError(@"%@ The anchor certificates couldn't be set.", self.logTag);
+        OWSFailDebug(@"The anchor certificates couldn't be set.");
+        *error = CDSSigningCertificateErrorMake(
+            CDSSigningCertificateError_AssertionError, @"The anchor certificates couldn't be set.");
         return nil;
     }
 
     SecTrustResultType result;
     status = SecTrustEvaluate(trust, &result);
     if (status != errSecSuccess) {
-        DDLogError(@"%@ Could not evaluate certificates.", self.logTag);
+        OWSFailDebug(@"Could not evaluate certificates.");
+        *error = CDSSigningCertificateErrorMake(
+            CDSSigningCertificateError_AssertionError, @"Could not evaluate certificates.");
         return nil;
     }
 
@@ -148,14 +178,18 @@ NS_ASSUME_NONNULL_BEGIN
     // See the comments in the header where it is defined.
     BOOL isValid = (result == kSecTrustResultUnspecified || result == kSecTrustResultProceed);
     if (!isValid) {
-        DDLogError(@"%@ Certificate evaluation failed.", self.logTag);
+        OWSFailDebug(@"Certificate was not trusted.");
+        *error = CDSSigningCertificateErrorMake(
+            CDSSigningCertificateError_UntrustedCertificate, @"Certificate was not trusted.");
         return nil;
     }
 
     SecKeyRef publicKey = SecTrustCopyPublicKey(trust);
     signingCertificate.publicKey = publicKey;
     if (!publicKey) {
-        DDLogError(@"%@ Could not extract public key.", self.logTag);
+        OWSFailDebug(@"Could not extract public key.");
+        *error = CDSSigningCertificateErrorMake(
+            CDSSigningCertificateError_AssertionError, @"Could not extract public key.");
         return nil;
     }
 
@@ -176,7 +210,7 @@ NS_ASSUME_NONNULL_BEGIN
                              options:NSRegularExpressionCaseInsensitive | NSRegularExpressionDotMatchesLineSeparators
                                error:&error];
     if (!regex || error) {
-        OWSProdLogAndFail(@"%@ could parse regex: %@.", self.logTag, error);
+        OWSFailDebug(@"could parse regex: %@.", error);
         return nil;
     }
 
@@ -185,19 +219,19 @@ NS_ASSUME_NONNULL_BEGIN
                               range:NSMakeRange(0, pemString.length)
                          usingBlock:^(NSTextCheckingResult *_Nullable result, NSMatchingFlags flags, BOOL *stop) {
                              if (result.numberOfRanges != 2) {
-                                 OWSProdLogAndFail(@"%@ invalid PEM regex match.", self.logTag);
+                                 OWSFailDebug(@"invalid PEM regex match.");
                                  return;
                              }
                              NSString *_Nullable derString = [pemString substringWithRange:[result rangeAtIndex:1]];
                              if (derString.length < 1) {
-                                 OWSProdLogAndFail(@"%@ empty PEM match.", self.logTag);
+                                 OWSFailDebug(@"empty PEM match.");
                                  return;
                              }
                              // dataFromBase64String will ignore whitespace, which is
                              // necessary.
                              NSData *_Nullable derData = [NSData dataFromBase64String:derString];
                              if (derData.length < 1) {
-                                 OWSProdLogAndFail(@"%@ could not parse PEM match.", self.logTag);
+                                 OWSFailDebugUnlessRunningTests(@"could not parse PEM match.");
                                  return;
                              }
                              [certificateDatas addObject:derData];
@@ -214,8 +248,7 @@ NS_ASSUME_NONNULL_BEGIN
         // We need to use an Intel certificate as the anchor for IAS verification.
         NSData *_Nullable anchorCertificate = [self certificateDataForService:@"ias-root"];
         if (!anchorCertificate) {
-            OWSProdLogAndFail(@"%@ could not load anchor certificate.", self.logTag);
-            OWSRaiseException(@"OWSSignalService_CouldNotLoadCertificate", @"%s", __PRETTY_FUNCTION__);
+            OWSFail(@"could not load anchor certificate.");
         } else {
             anchorCertificates = @[ anchorCertificate ];
         }
@@ -229,7 +262,7 @@ NS_ASSUME_NONNULL_BEGIN
     NSString *path = [bundle pathForResource:service ofType:@"cer"];
 
     if (![[NSFileManager defaultManager] fileExistsAtPath:path]) {
-        OWSProdLogAndFail(@"%@ could not locate certificate file.", self.logTag);
+        OWSFailDebug(@"could not locate certificate file.");
         return nil;
     }
 
@@ -239,7 +272,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (BOOL)verifySignatureOfBody:(NSString *)body signature:(NSData *)signature
 {
-    OWSAssert(self.publicKey);
+    OWSAssertDebug(self.publicKey);
 
     NSData *bodyData = [body dataUsingEncoding:NSUTF8StringEncoding];
 
@@ -248,7 +281,7 @@ NS_ASSUME_NONNULL_BEGIN
 
     NSData *_Nullable hashData = [Cryptography computeSHA256Digest:bodyData];
     if (hashData.length != CC_SHA256_DIGEST_LENGTH) {
-        OWSProdLogAndFail(@"%@ could not SHA256 for signature verification.", self.logTag);
+        OWSFailDebug(@"could not SHA256 for signature verification.");
         return NO;
     }
     size_t hashBytesSize = CC_SHA256_DIGEST_LENGTH;
@@ -259,7 +292,7 @@ NS_ASSUME_NONNULL_BEGIN
 
     BOOL isValid = status == errSecSuccess;
     if (!isValid) {
-        OWSProdLogAndFail(@"%@ signatures do not match.", self.logTag);
+        OWSFailDebugUnlessRunningTests(@"signatures do not match.");
         return NO;
     }
     return YES;
@@ -267,13 +300,13 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (BOOL)verifyDistinguishedNameOfCertificate:(NSData *)certificateData
 {
-    OWSAssert(certificateData);
+    OWSAssertDebug(certificateData);
 
     // The Security framework doesn't offer access to certificate properties
     // with API available on iOS 9. We use OpenSSL to extract the name.
     NSDictionary<NSString *, NSString *> *_Nullable properties = [self propertiesForCertificate:certificateData];
     if (!properties) {
-        OWSFail(@"%@ Could not retrieve certificate properties.", self.logTag);
+        OWSFailDebug(@"Could not retrieve certificate properties.");
         return NO;
     }
     //    NSString *expectedDistinguishedName
@@ -292,7 +325,7 @@ NS_ASSUME_NONNULL_BEGIN
     };
 
     if (![properties isEqualToDictionary:expectedProperties]) {
-        OWSFail(@"%@ Unexpected certificate properties. %@ != %@", self.logTag, expectedProperties, properties);
+        OWSFailDebugUnlessRunningTests(@"Unexpected certificate properties. %@ != %@", expectedProperties, properties);
         return NO;
     }
     return YES;
@@ -300,22 +333,22 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (nullable NSDictionary<NSString *, NSString *> *)propertiesForCertificate:(NSData *)certificateData
 {
-    OWSAssert(certificateData);
+    OWSAssertDebug(certificateData);
 
     if (certificateData.length >= UINT32_MAX) {
-        OWSFail(@"%@ certificate data is too long.", self.logTag);
+        OWSFailDebug(@"certificate data is too long.");
         return nil;
     }
     const unsigned char *certificateDataBytes = (const unsigned char *)[certificateData bytes];
     X509 *_Nullable certificateX509 = d2i_X509(NULL, &certificateDataBytes, [certificateData length]);
     if (!certificateX509) {
-        OWSFail(@"%@ could not parse certificate.", self.logTag);
+        OWSFailDebug(@"could not parse certificate.");
         return nil;
     }
 
     X509_NAME *_Nullable subjectName = X509_get_subject_name(certificateX509);
     if (!subjectName) {
-        OWSFail(@"%@ could not extract subject name.", self.logTag);
+        OWSFailDebug(@"could not extract subject name.");
         return nil;
     }
 
@@ -332,24 +365,24 @@ NS_ASSUME_NONNULL_BEGIN
 
         X509_NAME_ENTRY *_Nullable entry = X509_NAME_get_entry(subjectName, index);
         if (!entry) {
-            OWSFail(@"%@ could not extract entry.", self.logTag);
+            OWSFailDebug(@"could not extract entry.");
             return nil;
         }
 
         ASN1_STRING *_Nullable entryData = X509_NAME_ENTRY_get_data(entry);
         if (!entryData) {
-            OWSFail(@"%@ could not extract entry data.", self.logTag);
+            OWSFailDebug(@"could not extract entry data.");
             return nil;
         }
 
         unsigned char *entryName = ASN1_STRING_data(entryData);
         if (entryName == NULL) {
-            OWSFail(@"%@ could not extract entry string.", self.logTag);
+            OWSFailDebug(@"could not extract entry string.");
             return nil;
         }
         NSString *_Nullable entryString = [NSString stringWithUTF8String:(char *)entryName];
         if (!entryString) {
-            OWSFail(@"%@ could not parse entry name data.", self.logTag);
+            OWSFailDebug(@"could not parse entry name data.");
             return nil;
         }
         certificateProperties[oid] = entryString;

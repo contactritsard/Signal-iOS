@@ -34,7 +34,7 @@ NS_ASSUME_NONNULL_BEGIN
                             }],
             [OWSTableItem itemWithTitle:@"Toggle Key Change"
                             actionBlock:^{
-                                DDLogError(@"Flipping identity Key. Flip again to return.");
+                                OWSLogError(@"Flipping identity Key. Flip again to return.");
 
                                 OWSIdentityManager *identityManager = [OWSIdentityManager sharedManager];
                                 NSString *recipientId = [thread contactIdentifier];
@@ -46,21 +46,20 @@ NS_ASSUME_NONNULL_BEGIN
                                     const char xorByte = currentKeyBytes[i] ^ 0xff;
                                     [flippedKey appendBytes:&xorByte length:1];
                                 }
-                                OWSAssert(flippedKey.length == currentKey.length);
+                                OWSAssertDebug(flippedKey.length == currentKey.length);
                                 [identityManager saveRemoteIdentity:flippedKey recipientId:recipientId];
                             }],
             [OWSTableItem itemWithTitle:@"Delete all sessions"
                             actionBlock:^{
-                                [OWSPrimaryStorage.sharedManager.newDatabaseConnection
-                                    readWriteWithBlock:^(YapDatabaseReadWriteTransaction *transaction) {
-                                        [[OWSPrimaryStorage sharedManager]
-                                            deleteAllSessionsForContact:thread.contactIdentifier
-                                                        protocolContext:transaction];
-                                    }];
+                                [self.dbConnection readWriteWithBlock:^(YapDatabaseReadWriteTransaction *transaction) {
+                                    [[OWSPrimaryStorage sharedManager]
+                                        deleteAllSessionsForContact:thread.contactIdentifier
+                                                    protocolContext:transaction];
+                                }];
                             }],
             [OWSTableItem itemWithTitle:@"Archive all sessions"
                             actionBlock:^{
-                                [OWSPrimaryStorage.sharedManager.newDatabaseConnection
+                                [self.dbConnection
                                     readWriteWithBlock:^(YapDatabaseReadWriteTransaction *transaction) {
                                         [[OWSPrimaryStorage sharedManager]
                                             archiveAllSessionsForContact:thread.contactIdentifier
@@ -69,9 +68,9 @@ NS_ASSUME_NONNULL_BEGIN
                             }],
             [OWSTableItem itemWithTitle:@"Send session reset"
                             actionBlock:^{
-                                [OWSSessionResetJob runWithContactThread:thread
-                                                           messageSender:[Environment current].messageSender
-                                                          primaryStorage:[OWSPrimaryStorage sharedManager]];
+                                [self.dbConnection readWriteWithBlock:^(YapDatabaseReadWriteTransaction *transaction) {
+                                    [self.sessionResetJobQueue addContactThread:thread transaction:transaction];
+                                }];
                             }],
         ]];
     }
@@ -94,6 +93,18 @@ NS_ASSUME_NONNULL_BEGIN
 #endif
 
     return [OWSTableSection sectionWithTitle:self.name items:items];
+}
+
+#pragma mark - Dependencies
+
+- (OWSSessionResetJobQueue *)sessionResetJobQueue
+{
+    return AppEnvironment.shared.sessionResetJobQueue;
+}
+
+- (YapDatabaseConnection *)dbConnection
+{
+    return SSKEnvironment.shared.primaryStorage.dbReadWriteConnection;
 }
 
 #if DEBUG

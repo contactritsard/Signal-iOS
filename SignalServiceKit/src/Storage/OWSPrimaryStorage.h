@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 #import "OWSStorage.h"
@@ -15,6 +15,8 @@ extern NSString *const OWSUIDatabaseConnectionNotificationsKey;
 @interface OWSPrimaryStorage : OWSStorage
 
 - (instancetype)init NS_UNAVAILABLE;
+
+- (instancetype)initStorage;
 
 + (instancetype)sharedManager NS_SWIFT_NAME(shared());
 
@@ -37,6 +39,12 @@ extern NSString *const OWSUIDatabaseConnectionNotificationsKey;
 + (NSString *)sharedDataDatabaseFilePath;
 + (NSString *)sharedDataDatabaseFilePath_SHM;
 + (NSString *)sharedDataDatabaseFilePath_WAL;
+
++ (void)protectFiles;
+
+#pragma mark - Misc.
+
+- (void)touchDbAsync;
 
 @end
 

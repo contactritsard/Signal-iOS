@@ -1,10 +1,14 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 #import <UIKit/UIKit.h>
 
 NS_ASSUME_NONNULL_BEGIN
+
+BOOL IsLandscapeOrientationEnabled(void);
+
+UIInterfaceOrientationMask DefaultUIInterfaceOrientationMask(void);
 
 @interface OWSViewController : UIViewController
 
@@ -14,7 +18,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 // We often want to pin one view to the bottom of a view controller
 // BUT adjust its location upward if the keyboard appears.
-- (void)autoPinViewToBottomOfViewControllerOrKeyboard:(UIView *)view;
+- (void)autoPinViewToBottomOfViewControllerOrKeyboard:(UIView *)view avoidNotch:(BOOL)avoidNotch;
 
 @end
 

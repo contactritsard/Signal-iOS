@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 import Foundation
@@ -12,32 +12,45 @@ import SignalServiceKit
  */
 @objc
 public class AccountManager: NSObject {
-    let TAG = "[AccountManager]"
 
-    let textSecureAccountManager: TSAccountManager
-    let networkManager: TSNetworkManager
-    let preferences: OWSPreferences
+    // MARK: - Dependencies
 
     var pushManager: PushManager {
         // dependency injection hack since PushManager has *alot* of dependencies, and would induce a cycle.
         return PushManager.shared()
     }
 
-    @objc
-    public required init(textSecureAccountManager: TSAccountManager, preferences: OWSPreferences) {
-        self.networkManager = textSecureAccountManager.networkManager
-        self.textSecureAccountManager = textSecureAccountManager
-        self.preferences = preferences
+    var profileManager: OWSProfileManager {
+        return OWSProfileManager.shared()
+    }
 
+    // MARK: -
+
+    @objc
+    public override init() {
         super.init()
 
         SwiftSingletons.register(self)
     }
 
+    // MARK: - Dependencies
+
+    private var networkManager: TSNetworkManager {
+        return SSKEnvironment.shared.networkManager
+    }
+
+    private var preferences: OWSPreferences {
+        return Environment.shared.preferences
+    }
+
+    private var tsAccountManager: TSAccountManager {
+        return TSAccountManager.sharedInstance()
+    }
+
     // MARK: registration
 
-    @objc func register(verificationCode: String,
-                        pin: String?) -> AnyPromise {
+    @objc func registerObjc(verificationCode: String,
+                            pin: String?) -> AnyPromise {
         return AnyPromise(register(verificationCode: verificationCode, pin: pin))
     }
 
@@ -50,23 +63,23 @@ public class AccountManager: NSObject {
             return Promise(error: error)
         }
 
-        Logger.debug("\(self.TAG) registering with signal server")
+        Logger.debug("registering with signal server")
         let registrationPromise: Promise<Void> = firstly {
             return self.registerForTextSecure(verificationCode: verificationCode, pin: pin)
-        }.then {
-            return self.syncPushTokens()
-        }.recover { (error) -> Promise<Void> in
-            switch error {
-            case PushRegistrationError.pushNotSupported(let description):
-                // This can happen with:
-                // - simulators, none of which support receiving push notifications
-                // - on iOS11 devices which have disabled "Allow Notifications" and disabled "Enable Background Refresh" in the system settings.
-                Logger.info("\(self.TAG) Recovered push registration error. Registering for manual message fetcher because push not supported: \(description)")
-                return self.registerForManualMessageFetching()
-            default:
-                throw error
+        }.then { _ -> Promise<Void> in
+            return self.syncPushTokens().recover { (error) -> Promise<Void> in
+                switch error {
+                case PushRegistrationError.pushNotSupported(let description):
+                    // This can happen with:
+                    // - simulators, none of which support receiving push notifications
+                    // - on iOS11 devices which have disabled "Allow Notifications" and disabled "Enable Background Refresh" in the system settings.
+                    Logger.info("Recovered push registration error. Registering for manual message fetcher because push not supported: \(description)")
+                    return self.enableManualMessageFetching()
+                default:
+                    throw error
+                }
             }
-        }.then {
+        }.done { (_) -> Void in
             self.completeRegistration()
         }
 
@@ -77,65 +90,63 @@ public class AccountManager: NSObject {
 
     private func registerForTextSecure(verificationCode: String,
                                        pin: String?) -> Promise<Void> {
-        return Promise { fulfill, reject in
-            self.textSecureAccountManager.verifyAccount(withCode: verificationCode,
-                                                        pin: pin,
-                                                        success: fulfill,
-                                                        failure: reject)
+        return Promise { resolver in
+            tsAccountManager.verifyAccount(withCode: verificationCode,
+                                           pin: pin,
+                                           success: resolver.fulfill,
+                                           failure: resolver.reject)
         }
     }
 
     private func syncPushTokens() -> Promise<Void> {
-        Logger.info("\(self.TAG) in \(#function)")
+        Logger.info("")
         let job = SyncPushTokensJob(accountManager: self, preferences: self.preferences)
         job.uploadOnlyIfStale = false
         return job.run()
     }
 
     private func completeRegistration() {
-        Logger.info("\(self.TAG) in \(#function)")
-        self.textSecureAccountManager.didRegister()
+        Logger.info("")
+        tsAccountManager.didRegister()
     }
 
     // MARK: Message Delivery
 
     func updatePushTokens(pushToken: String, voipToken: String) -> Promise<Void> {
-        return Promise { fulfill, reject in
-            self.textSecureAccountManager.registerForPushNotifications(pushToken: pushToken,
-                                                                       voipToken: voipToken,
-                                                                       success: fulfill,
-                                                                       failure: reject)
+        return Promise { resolver in
+            tsAccountManager.registerForPushNotifications(pushToken: pushToken,
+                                                          voipToken: voipToken,
+                                                          success: resolver.fulfill,
+                                                          failure: resolver.reject)
         }
     }
 
-    func registerForManualMessageFetching() -> Promise<Void> {
-        return Promise { fulfill, reject in
-            self.textSecureAccountManager.registerForManualMessageFetching(success: fulfill, failure: reject)
-        }
+    func enableManualMessageFetching() -> Promise<Void> {
+        let anyPromise = tsAccountManager.setIsManualMessageFetchEnabled(true)
+        return Promise(anyPromise).asVoid()
     }
 
     // MARK: Turn Server
 
     func getTurnServerInfo() -> Promise<TurnServerInfo> {
-        return Promise { fulfill, reject in
+        return Promise { resolver in
             self.networkManager.makeRequest(OWSRequestFactory.turnServerInfoRequest(),
                                             success: { (_: URLSessionDataTask, responseObject: Any?) in
                                                 guard responseObject != nil else {
-                                                    return reject(OWSErrorMakeUnableToProcessServerResponseError())
+                                                    return resolver.reject(OWSErrorMakeUnableToProcessServerResponseError())
                                                 }
 
                                                 if let responseDictionary = responseObject as? [String: AnyObject] {
                                                     if let turnServerInfo = TurnServerInfo(attributes: responseDictionary) {
-                                                        return fulfill(turnServerInfo)
+                                                        return resolver.fulfill(turnServerInfo)
                                                     }
-                                                    Logger.error("\(self.TAG) unexpected server response:\(responseDictionary)")
+                                                    Logger.error("unexpected server response:\(responseDictionary)")
                                                 }
-                                                return reject(OWSErrorMakeUnableToProcessServerResponseError())
+                                                return resolver.reject(OWSErrorMakeUnableToProcessServerResponseError())
             },
                                             failure: { (_: URLSessionDataTask, error: Error) in
-                                                    return reject(error)
+                                                    return resolver.reject(error)
             })
         }
     }
-
 }

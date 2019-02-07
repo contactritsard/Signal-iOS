@@ -32,6 +32,7 @@ struct SignalServiceProtos_Envelope {
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
+  /// @required
   var type: SignalServiceProtos_Envelope.TypeEnum {
     get {return _type ?? .unknown}
     set {_type = newValue}
@@ -68,6 +69,7 @@ struct SignalServiceProtos_Envelope {
   /// Clears the value of `relay`. Subsequent reads from it will return its default value.
   mutating func clearRelay() {self._relay = nil}
 
+  /// @required
   var timestamp: UInt64 {
     get {return _timestamp ?? 0}
     set {_timestamp = newValue}
@@ -97,6 +99,26 @@ struct SignalServiceProtos_Envelope {
   /// Clears the value of `content`. Subsequent reads from it will return its default value.
   mutating func clearContent() {self._content = nil}
 
+  /// We may eventually want to make this required.
+  var serverGuid: String {
+    get {return _serverGuid ?? String()}
+    set {_serverGuid = newValue}
+  }
+  /// Returns true if `serverGuid` has been explicitly set.
+  var hasServerGuid: Bool {return self._serverGuid != nil}
+  /// Clears the value of `serverGuid`. Subsequent reads from it will return its default value.
+  mutating func clearServerGuid() {self._serverGuid = nil}
+
+  /// We may eventually want to make this required.
+  var serverTimestamp: UInt64 {
+    get {return _serverTimestamp ?? 0}
+    set {_serverTimestamp = newValue}
+  }
+  /// Returns true if `serverTimestamp` has been explicitly set.
+  var hasServerTimestamp: Bool {return self._serverTimestamp != nil}
+  /// Clears the value of `serverTimestamp`. Subsequent reads from it will return its default value.
+  mutating func clearServerTimestamp() {self._serverTimestamp = nil}
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   enum TypeEnum: SwiftProtobuf.Enum {
@@ -106,6 +128,7 @@ struct SignalServiceProtos_Envelope {
     case keyExchange // = 2
     case prekeyBundle // = 3
     case receipt // = 5
+    case unidentifiedSender // = 6
 
     init() {
       self = .unknown
@@ -118,6 +141,7 @@ struct SignalServiceProtos_Envelope {
       case 2: self = .keyExchange
       case 3: self = .prekeyBundle
       case 5: self = .receipt
+      case 6: self = .unidentifiedSender
       default: return nil
       }
     }
@@ -129,6 +153,7 @@ struct SignalServiceProtos_Envelope {
       case .keyExchange: return 2
       case .prekeyBundle: return 3
       case .receipt: return 5
+      case .unidentifiedSender: return 6
       }
     }
 
@@ -143,7 +168,94 @@ struct SignalServiceProtos_Envelope {
   fileprivate var _timestamp: UInt64? = nil
   fileprivate var _legacyMessage: Data? = nil
   fileprivate var _content: Data? = nil
+  fileprivate var _serverGuid: String? = nil
+  fileprivate var _serverTimestamp: UInt64? = nil
 }
+
+#if swift(>=4.2)
+
+extension SignalServiceProtos_Envelope.TypeEnum: CaseIterable {
+  // Support synthesized by the compiler.
+}
+
+#endif  // swift(>=4.2)
+
+struct SignalServiceProtos_TypingMessage {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// @required
+  var timestamp: UInt64 {
+    get {return _timestamp ?? 0}
+    set {_timestamp = newValue}
+  }
+  /// Returns true if `timestamp` has been explicitly set.
+  var hasTimestamp: Bool {return self._timestamp != nil}
+  /// Clears the value of `timestamp`. Subsequent reads from it will return its default value.
+  mutating func clearTimestamp() {self._timestamp = nil}
+
+  /// @required
+  var action: SignalServiceProtos_TypingMessage.Action {
+    get {return _action ?? .started}
+    set {_action = newValue}
+  }
+  /// Returns true if `action` has been explicitly set.
+  var hasAction: Bool {return self._action != nil}
+  /// Clears the value of `action`. Subsequent reads from it will return its default value.
+  mutating func clearAction() {self._action = nil}
+
+  var groupID: Data {
+    get {return _groupID ?? SwiftProtobuf.Internal.emptyData}
+    set {_groupID = newValue}
+  }
+  /// Returns true if `groupID` has been explicitly set.
+  var hasGroupID: Bool {return self._groupID != nil}
+  /// Clears the value of `groupID`. Subsequent reads from it will return its default value.
+  mutating func clearGroupID() {self._groupID = nil}
+
+  var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  enum Action: SwiftProtobuf.Enum {
+    typealias RawValue = Int
+    case started // = 0
+    case stopped // = 1
+
+    init() {
+      self = .started
+    }
+
+    init?(rawValue: Int) {
+      switch rawValue {
+      case 0: self = .started
+      case 1: self = .stopped
+      default: return nil
+      }
+    }
+
+    var rawValue: Int {
+      switch self {
+      case .started: return 0
+      case .stopped: return 1
+      }
+    }
+
+  }
+
+  init() {}
+
+  fileprivate var _timestamp: UInt64? = nil
+  fileprivate var _action: SignalServiceProtos_TypingMessage.Action? = nil
+  fileprivate var _groupID: Data? = nil
+}
+
+#if swift(>=4.2)
+
+extension SignalServiceProtos_TypingMessage.Action: CaseIterable {
+  // Support synthesized by the compiler.
+}
+
+#endif  // swift(>=4.2)
 
 struct SignalServiceProtos_Content {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
@@ -157,7 +269,7 @@ struct SignalServiceProtos_Content {
   /// Returns true if `dataMessage` has been explicitly set.
   var hasDataMessage: Bool {return _storage._dataMessage != nil}
   /// Clears the value of `dataMessage`. Subsequent reads from it will return its default value.
-  mutating func clearDataMessage() {_storage._dataMessage = nil}
+  mutating func clearDataMessage() {_uniqueStorage()._dataMessage = nil}
 
   var syncMessage: SignalServiceProtos_SyncMessage {
     get {return _storage._syncMessage ?? SignalServiceProtos_SyncMessage()}
@@ -166,7 +278,7 @@ struct SignalServiceProtos_Content {
   /// Returns true if `syncMessage` has been explicitly set.
   var hasSyncMessage: Bool {return _storage._syncMessage != nil}
   /// Clears the value of `syncMessage`. Subsequent reads from it will return its default value.
-  mutating func clearSyncMessage() {_storage._syncMessage = nil}
+  mutating func clearSyncMessage() {_uniqueStorage()._syncMessage = nil}
 
   var callMessage: SignalServiceProtos_CallMessage {
     get {return _storage._callMessage ?? SignalServiceProtos_CallMessage()}
@@ -175,7 +287,7 @@ struct SignalServiceProtos_Content {
   /// Returns true if `callMessage` has been explicitly set.
   var hasCallMessage: Bool {return _storage._callMessage != nil}
   /// Clears the value of `callMessage`. Subsequent reads from it will return its default value.
-  mutating func clearCallMessage() {_storage._callMessage = nil}
+  mutating func clearCallMessage() {_uniqueStorage()._callMessage = nil}
 
   var nullMessage: SignalServiceProtos_NullMessage {
     get {return _storage._nullMessage ?? SignalServiceProtos_NullMessage()}
@@ -184,7 +296,7 @@ struct SignalServiceProtos_Content {
   /// Returns true if `nullMessage` has been explicitly set.
   var hasNullMessage: Bool {return _storage._nullMessage != nil}
   /// Clears the value of `nullMessage`. Subsequent reads from it will return its default value.
-  mutating func clearNullMessage() {_storage._nullMessage = nil}
+  mutating func clearNullMessage() {_uniqueStorage()._nullMessage = nil}
 
   var receiptMessage: SignalServiceProtos_ReceiptMessage {
     get {return _storage._receiptMessage ?? SignalServiceProtos_ReceiptMessage()}
@@ -193,7 +305,16 @@ struct SignalServiceProtos_Content {
   /// Returns true if `receiptMessage` has been explicitly set.
   var hasReceiptMessage: Bool {return _storage._receiptMessage != nil}
   /// Clears the value of `receiptMessage`. Subsequent reads from it will return its default value.
-  mutating func clearReceiptMessage() {_storage._receiptMessage = nil}
+  mutating func clearReceiptMessage() {_uniqueStorage()._receiptMessage = nil}
+
+  var typingMessage: SignalServiceProtos_TypingMessage {
+    get {return _storage._typingMessage ?? SignalServiceProtos_TypingMessage()}
+    set {_uniqueStorage()._typingMessage = newValue}
+  }
+  /// Returns true if `typingMessage` has been explicitly set.
+  var hasTypingMessage: Bool {return _storage._typingMessage != nil}
+  /// Clears the value of `typingMessage`. Subsequent reads from it will return its default value.
+  mutating func clearTypingMessage() {_uniqueStorage()._typingMessage = nil}
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -214,7 +335,7 @@ struct SignalServiceProtos_CallMessage {
   /// Returns true if `offer` has been explicitly set.
   var hasOffer: Bool {return _storage._offer != nil}
   /// Clears the value of `offer`. Subsequent reads from it will return its default value.
-  mutating func clearOffer() {_storage._offer = nil}
+  mutating func clearOffer() {_uniqueStorage()._offer = nil}
 
   var answer: SignalServiceProtos_CallMessage.Answer {
     get {return _storage._answer ?? SignalServiceProtos_CallMessage.Answer()}
@@ -223,7 +344,7 @@ struct SignalServiceProtos_CallMessage {
   /// Returns true if `answer` has been explicitly set.
   var hasAnswer: Bool {return _storage._answer != nil}
   /// Clears the value of `answer`. Subsequent reads from it will return its default value.
-  mutating func clearAnswer() {_storage._answer = nil}
+  mutating func clearAnswer() {_uniqueStorage()._answer = nil}
 
   var iceUpdate: [SignalServiceProtos_CallMessage.IceUpdate] {
     get {return _storage._iceUpdate}
@@ -237,7 +358,7 @@ struct SignalServiceProtos_CallMessage {
   /// Returns true if `hangup` has been explicitly set.
   var hasHangup: Bool {return _storage._hangup != nil}
   /// Clears the value of `hangup`. Subsequent reads from it will return its default value.
-  mutating func clearHangup() {_storage._hangup = nil}
+  mutating func clearHangup() {_uniqueStorage()._hangup = nil}
 
   var busy: SignalServiceProtos_CallMessage.Busy {
     get {return _storage._busy ?? SignalServiceProtos_CallMessage.Busy()}
@@ -246,7 +367,7 @@ struct SignalServiceProtos_CallMessage {
   /// Returns true if `busy` has been explicitly set.
   var hasBusy: Bool {return _storage._busy != nil}
   /// Clears the value of `busy`. Subsequent reads from it will return its default value.
-  mutating func clearBusy() {_storage._busy = nil}
+  mutating func clearBusy() {_uniqueStorage()._busy = nil}
 
   /// Signal-iOS sends profile key with call messages
   /// for earlier discovery
@@ -257,7 +378,7 @@ struct SignalServiceProtos_CallMessage {
   /// Returns true if `profileKey` has been explicitly set.
   var hasProfileKey: Bool {return _storage._profileKey != nil}
   /// Clears the value of `profileKey`. Subsequent reads from it will return its default value.
-  mutating func clearProfileKey() {_storage._profileKey = nil}
+  mutating func clearProfileKey() {_uniqueStorage()._profileKey = nil}
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -266,6 +387,7 @@ struct SignalServiceProtos_CallMessage {
     // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
     // methods supported on all messages.
 
+    /// @required
     var id: UInt64 {
       get {return _id ?? 0}
       set {_id = newValue}
@@ -277,6 +399,7 @@ struct SignalServiceProtos_CallMessage {
 
     /// Signal-iOS renamed the description field to avoid
     /// conflicts with [NSObject description].
+    /// @required
     var sessionDescription: String {
       get {return _sessionDescription ?? String()}
       set {_sessionDescription = newValue}
@@ -299,6 +422,7 @@ struct SignalServiceProtos_CallMessage {
     // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
     // methods supported on all messages.
 
+    /// @required
     var id: UInt64 {
       get {return _id ?? 0}
       set {_id = newValue}
@@ -310,6 +434,7 @@ struct SignalServiceProtos_CallMessage {
 
     /// Signal-iOS renamed the description field to avoid
     /// conflicts with [NSObject description].
+    /// @required
     var sessionDescription: String {
       get {return _sessionDescription ?? String()}
       set {_sessionDescription = newValue}
@@ -332,6 +457,7 @@ struct SignalServiceProtos_CallMessage {
     // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
     // methods supported on all messages.
 
+    /// @required
     var id: UInt64 {
       get {return _id ?? 0}
       set {_id = newValue}
@@ -341,6 +467,7 @@ struct SignalServiceProtos_CallMessage {
     /// Clears the value of `id`. Subsequent reads from it will return its default value.
     mutating func clearID() {self._id = nil}
 
+    /// @required
     var sdpMid: String {
       get {return _sdpMid ?? String()}
       set {_sdpMid = newValue}
@@ -350,6 +477,7 @@ struct SignalServiceProtos_CallMessage {
     /// Clears the value of `sdpMid`. Subsequent reads from it will return its default value.
     mutating func clearSdpMid() {self._sdpMid = nil}
 
+    /// @required
     var sdpMlineIndex: UInt32 {
       get {return _sdpMlineIndex ?? 0}
       set {_sdpMlineIndex = newValue}
@@ -359,6 +487,7 @@ struct SignalServiceProtos_CallMessage {
     /// Clears the value of `sdpMlineIndex`. Subsequent reads from it will return its default value.
     mutating func clearSdpMlineIndex() {self._sdpMlineIndex = nil}
 
+    /// @required
     var sdp: String {
       get {return _sdp ?? String()}
       set {_sdp = newValue}
@@ -383,6 +512,7 @@ struct SignalServiceProtos_CallMessage {
     // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
     // methods supported on all messages.
 
+    /// @required
     var id: UInt64 {
       get {return _id ?? 0}
       set {_id = newValue}
@@ -404,6 +534,7 @@ struct SignalServiceProtos_CallMessage {
     // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
     // methods supported on all messages.
 
+    /// @required
     var id: UInt64 {
       get {return _id ?? 0}
       set {_id = newValue}
@@ -437,7 +568,7 @@ struct SignalServiceProtos_DataMessage {
   /// Returns true if `body` has been explicitly set.
   var hasBody: Bool {return _storage._body != nil}
   /// Clears the value of `body`. Subsequent reads from it will return its default value.
-  mutating func clearBody() {_storage._body = nil}
+  mutating func clearBody() {_uniqueStorage()._body = nil}
 
   var attachments: [SignalServiceProtos_AttachmentPointer] {
     get {return _storage._attachments}
@@ -451,7 +582,7 @@ struct SignalServiceProtos_DataMessage {
   /// Returns true if `group` has been explicitly set.
   var hasGroup: Bool {return _storage._group != nil}
   /// Clears the value of `group`. Subsequent reads from it will return its default value.
-  mutating func clearGroup() {_storage._group = nil}
+  mutating func clearGroup() {_uniqueStorage()._group = nil}
 
   var flags: UInt32 {
     get {return _storage._flags ?? 0}
@@ -460,7 +591,7 @@ struct SignalServiceProtos_DataMessage {
   /// Returns true if `flags` has been explicitly set.
   var hasFlags: Bool {return _storage._flags != nil}
   /// Clears the value of `flags`. Subsequent reads from it will return its default value.
-  mutating func clearFlags() {_storage._flags = nil}
+  mutating func clearFlags() {_uniqueStorage()._flags = nil}
 
   var expireTimer: UInt32 {
     get {return _storage._expireTimer ?? 0}
@@ -469,7 +600,7 @@ struct SignalServiceProtos_DataMessage {
   /// Returns true if `expireTimer` has been explicitly set.
   var hasExpireTimer: Bool {return _storage._expireTimer != nil}
   /// Clears the value of `expireTimer`. Subsequent reads from it will return its default value.
-  mutating func clearExpireTimer() {_storage._expireTimer = nil}
+  mutating func clearExpireTimer() {_uniqueStorage()._expireTimer = nil}
 
   var profileKey: Data {
     get {return _storage._profileKey ?? SwiftProtobuf.Internal.emptyData}
@@ -478,7 +609,7 @@ struct SignalServiceProtos_DataMessage {
   /// Returns true if `profileKey` has been explicitly set.
   var hasProfileKey: Bool {return _storage._profileKey != nil}
   /// Clears the value of `profileKey`. Subsequent reads from it will return its default value.
-  mutating func clearProfileKey() {_storage._profileKey = nil}
+  mutating func clearProfileKey() {_uniqueStorage()._profileKey = nil}
 
   var timestamp: UInt64 {
     get {return _storage._timestamp ?? 0}
@@ -487,7 +618,7 @@ struct SignalServiceProtos_DataMessage {
   /// Returns true if `timestamp` has been explicitly set.
   var hasTimestamp: Bool {return _storage._timestamp != nil}
   /// Clears the value of `timestamp`. Subsequent reads from it will return its default value.
-  mutating func clearTimestamp() {_storage._timestamp = nil}
+  mutating func clearTimestamp() {_uniqueStorage()._timestamp = nil}
 
   var quote: SignalServiceProtos_DataMessage.Quote {
     get {return _storage._quote ?? SignalServiceProtos_DataMessage.Quote()}
@@ -496,11 +627,16 @@ struct SignalServiceProtos_DataMessage {
   /// Returns true if `quote` has been explicitly set.
   var hasQuote: Bool {return _storage._quote != nil}
   /// Clears the value of `quote`. Subsequent reads from it will return its default value.
-  mutating func clearQuote() {_storage._quote = nil}
+  mutating func clearQuote() {_uniqueStorage()._quote = nil}
 
   var contact: [SignalServiceProtos_DataMessage.Contact] {
     get {return _storage._contact}
     set {_uniqueStorage()._contact = newValue}
+  }
+
+  var preview: [SignalServiceProtos_DataMessage.Preview] {
+    get {return _storage._preview}
+    set {_uniqueStorage()._preview = newValue}
   }
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
@@ -539,6 +675,7 @@ struct SignalServiceProtos_DataMessage {
     // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
     // methods supported on all messages.
 
+    /// @required
     var id: UInt64 {
       get {return _id ?? 0}
       set {_id = newValue}
@@ -548,6 +685,7 @@ struct SignalServiceProtos_DataMessage {
     /// Clears the value of `id`. Subsequent reads from it will return its default value.
     mutating func clearID() {self._id = nil}
 
+    /// @required
     var author: String {
       get {return _author ?? String()}
       set {_author = newValue}
@@ -582,7 +720,7 @@ struct SignalServiceProtos_DataMessage {
       /// Returns true if `contentType` has been explicitly set.
       var hasContentType: Bool {return _storage._contentType != nil}
       /// Clears the value of `contentType`. Subsequent reads from it will return its default value.
-      mutating func clearContentType() {_storage._contentType = nil}
+      mutating func clearContentType() {_uniqueStorage()._contentType = nil}
 
       var fileName: String {
         get {return _storage._fileName ?? String()}
@@ -591,7 +729,7 @@ struct SignalServiceProtos_DataMessage {
       /// Returns true if `fileName` has been explicitly set.
       var hasFileName: Bool {return _storage._fileName != nil}
       /// Clears the value of `fileName`. Subsequent reads from it will return its default value.
-      mutating func clearFileName() {_storage._fileName = nil}
+      mutating func clearFileName() {_uniqueStorage()._fileName = nil}
 
       var thumbnail: SignalServiceProtos_AttachmentPointer {
         get {return _storage._thumbnail ?? SignalServiceProtos_AttachmentPointer()}
@@ -600,7 +738,7 @@ struct SignalServiceProtos_DataMessage {
       /// Returns true if `thumbnail` has been explicitly set.
       var hasThumbnail: Bool {return _storage._thumbnail != nil}
       /// Clears the value of `thumbnail`. Subsequent reads from it will return its default value.
-      mutating func clearThumbnail() {_storage._thumbnail = nil}
+      mutating func clearThumbnail() {_uniqueStorage()._thumbnail = nil}
 
       var flags: UInt32 {
         get {return _storage._flags ?? 0}
@@ -609,7 +747,7 @@ struct SignalServiceProtos_DataMessage {
       /// Returns true if `flags` has been explicitly set.
       var hasFlags: Bool {return _storage._flags != nil}
       /// Clears the value of `flags`. Subsequent reads from it will return its default value.
-      mutating func clearFlags() {_storage._flags = nil}
+      mutating func clearFlags() {_uniqueStorage()._flags = nil}
 
       var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -660,7 +798,7 @@ struct SignalServiceProtos_DataMessage {
     /// Returns true if `name` has been explicitly set.
     var hasName: Bool {return _storage._name != nil}
     /// Clears the value of `name`. Subsequent reads from it will return its default value.
-    mutating func clearName() {_storage._name = nil}
+    mutating func clearName() {_uniqueStorage()._name = nil}
 
     var number: [SignalServiceProtos_DataMessage.Contact.Phone] {
       get {return _storage._number}
@@ -684,7 +822,7 @@ struct SignalServiceProtos_DataMessage {
     /// Returns true if `avatar` has been explicitly set.
     var hasAvatar: Bool {return _storage._avatar != nil}
     /// Clears the value of `avatar`. Subsequent reads from it will return its default value.
-    mutating func clearAvatar() {_storage._avatar = nil}
+    mutating func clearAvatar() {_uniqueStorage()._avatar = nil}
 
     var organization: String {
       get {return _storage._organization ?? String()}
@@ -693,7 +831,7 @@ struct SignalServiceProtos_DataMessage {
     /// Returns true if `organization` has been explicitly set.
     var hasOrganization: Bool {return _storage._organization != nil}
     /// Clears the value of `organization`. Subsequent reads from it will return its default value.
-    mutating func clearOrganization() {_storage._organization = nil}
+    mutating func clearOrganization() {_uniqueStorage()._organization = nil}
 
     var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -1056,7 +1194,7 @@ struct SignalServiceProtos_DataMessage {
       /// Returns true if `avatar` has been explicitly set.
       var hasAvatar: Bool {return _storage._avatar != nil}
       /// Clears the value of `avatar`. Subsequent reads from it will return its default value.
-      mutating func clearAvatar() {_storage._avatar = nil}
+      mutating func clearAvatar() {_uniqueStorage()._avatar = nil}
 
       var isProfile: Bool {
         get {return _storage._isProfile ?? false}
@@ -1065,7 +1203,7 @@ struct SignalServiceProtos_DataMessage {
       /// Returns true if `isProfile` has been explicitly set.
       var hasIsProfile: Bool {return _storage._isProfile != nil}
       /// Clears the value of `isProfile`. Subsequent reads from it will return its default value.
-      mutating func clearIsProfile() {_storage._isProfile = nil}
+      mutating func clearIsProfile() {_uniqueStorage()._isProfile = nil}
 
       var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -1079,10 +1217,58 @@ struct SignalServiceProtos_DataMessage {
     fileprivate var _storage = _StorageClass.defaultInstance
   }
 
+  struct Preview {
+    // SwiftProtobuf.Message conformance is added in an extension below. See the
+    // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+    // methods supported on all messages.
+
+    /// @required
+    var url: String {
+      get {return _storage._url ?? String()}
+      set {_uniqueStorage()._url = newValue}
+    }
+    /// Returns true if `url` has been explicitly set.
+    var hasURL: Bool {return _storage._url != nil}
+    /// Clears the value of `url`. Subsequent reads from it will return its default value.
+    mutating func clearURL() {_uniqueStorage()._url = nil}
+
+    var title: String {
+      get {return _storage._title ?? String()}
+      set {_uniqueStorage()._title = newValue}
+    }
+    /// Returns true if `title` has been explicitly set.
+    var hasTitle: Bool {return _storage._title != nil}
+    /// Clears the value of `title`. Subsequent reads from it will return its default value.
+    mutating func clearTitle() {_uniqueStorage()._title = nil}
+
+    var image: SignalServiceProtos_AttachmentPointer {
+      get {return _storage._image ?? SignalServiceProtos_AttachmentPointer()}
+      set {_uniqueStorage()._image = newValue}
+    }
+    /// Returns true if `image` has been explicitly set.
+    var hasImage: Bool {return _storage._image != nil}
+    /// Clears the value of `image`. Subsequent reads from it will return its default value.
+    mutating func clearImage() {_uniqueStorage()._image = nil}
+
+    var unknownFields = SwiftProtobuf.UnknownStorage()
+
+    init() {}
+
+    fileprivate var _storage = _StorageClass.defaultInstance
+  }
+
   init() {}
 
   fileprivate var _storage = _StorageClass.defaultInstance
 }
+
+#if swift(>=4.2)
+
+extension SignalServiceProtos_DataMessage.Flags: CaseIterable {
+  // Support synthesized by the compiler.
+}
+
+#endif  // swift(>=4.2)
 
 struct SignalServiceProtos_NullMessage {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
@@ -1110,6 +1296,7 @@ struct SignalServiceProtos_ReceiptMessage {
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
+  /// @required
   var type: SignalServiceProtos_ReceiptMessage.TypeEnum {
     get {return _type ?? .delivery}
     set {_type = newValue}
@@ -1154,11 +1341,20 @@ struct SignalServiceProtos_ReceiptMessage {
   fileprivate var _type: SignalServiceProtos_ReceiptMessage.TypeEnum? = nil
 }
 
+#if swift(>=4.2)
+
+extension SignalServiceProtos_ReceiptMessage.TypeEnum: CaseIterable {
+  // Support synthesized by the compiler.
+}
+
+#endif  // swift(>=4.2)
+
 struct SignalServiceProtos_Verified {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
+  /// @required
   var destination: String {
     get {return _destination ?? String()}
     set {_destination = newValue}
@@ -1234,6 +1430,14 @@ struct SignalServiceProtos_Verified {
   fileprivate var _nullMessage: Data? = nil
 }
 
+#if swift(>=4.2)
+
+extension SignalServiceProtos_Verified.State: CaseIterable {
+  // Support synthesized by the compiler.
+}
+
+#endif  // swift(>=4.2)
+
 struct SignalServiceProtos_SyncMessage {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -1246,7 +1450,7 @@ struct SignalServiceProtos_SyncMessage {
   /// Returns true if `sent` has been explicitly set.
   var hasSent: Bool {return _storage._sent != nil}
   /// Clears the value of `sent`. Subsequent reads from it will return its default value.
-  mutating func clearSent() {_storage._sent = nil}
+  mutating func clearSent() {_uniqueStorage()._sent = nil}
 
   var contacts: SignalServiceProtos_SyncMessage.Contacts {
     get {return _storage._contacts ?? SignalServiceProtos_SyncMessage.Contacts()}
@@ -1255,7 +1459,7 @@ struct SignalServiceProtos_SyncMessage {
   /// Returns true if `contacts` has been explicitly set.
   var hasContacts: Bool {return _storage._contacts != nil}
   /// Clears the value of `contacts`. Subsequent reads from it will return its default value.
-  mutating func clearContacts() {_storage._contacts = nil}
+  mutating func clearContacts() {_uniqueStorage()._contacts = nil}
 
   var groups: SignalServiceProtos_SyncMessage.Groups {
     get {return _storage._groups ?? SignalServiceProtos_SyncMessage.Groups()}
@@ -1264,7 +1468,7 @@ struct SignalServiceProtos_SyncMessage {
   /// Returns true if `groups` has been explicitly set.
   var hasGroups: Bool {return _storage._groups != nil}
   /// Clears the value of `groups`. Subsequent reads from it will return its default value.
-  mutating func clearGroups() {_storage._groups = nil}
+  mutating func clearGroups() {_uniqueStorage()._groups = nil}
 
   var request: SignalServiceProtos_SyncMessage.Request {
     get {return _storage._request ?? SignalServiceProtos_SyncMessage.Request()}
@@ -1273,7 +1477,7 @@ struct SignalServiceProtos_SyncMessage {
   /// Returns true if `request` has been explicitly set.
   var hasRequest: Bool {return _storage._request != nil}
   /// Clears the value of `request`. Subsequent reads from it will return its default value.
-  mutating func clearRequest() {_storage._request = nil}
+  mutating func clearRequest() {_uniqueStorage()._request = nil}
 
   var read: [SignalServiceProtos_SyncMessage.Read] {
     get {return _storage._read}
@@ -1287,7 +1491,7 @@ struct SignalServiceProtos_SyncMessage {
   /// Returns true if `blocked` has been explicitly set.
   var hasBlocked: Bool {return _storage._blocked != nil}
   /// Clears the value of `blocked`. Subsequent reads from it will return its default value.
-  mutating func clearBlocked() {_storage._blocked = nil}
+  mutating func clearBlocked() {_uniqueStorage()._blocked = nil}
 
   var verified: SignalServiceProtos_Verified {
     get {return _storage._verified ?? SignalServiceProtos_Verified()}
@@ -1296,7 +1500,7 @@ struct SignalServiceProtos_SyncMessage {
   /// Returns true if `verified` has been explicitly set.
   var hasVerified: Bool {return _storage._verified != nil}
   /// Clears the value of `verified`. Subsequent reads from it will return its default value.
-  mutating func clearVerified() {_storage._verified = nil}
+  mutating func clearVerified() {_uniqueStorage()._verified = nil}
 
   var configuration: SignalServiceProtos_SyncMessage.Configuration {
     get {return _storage._configuration ?? SignalServiceProtos_SyncMessage.Configuration()}
@@ -1305,7 +1509,7 @@ struct SignalServiceProtos_SyncMessage {
   /// Returns true if `configuration` has been explicitly set.
   var hasConfiguration: Bool {return _storage._configuration != nil}
   /// Clears the value of `configuration`. Subsequent reads from it will return its default value.
-  mutating func clearConfiguration() {_storage._configuration = nil}
+  mutating func clearConfiguration() {_uniqueStorage()._configuration = nil}
 
   var padding: Data {
     get {return _storage._padding ?? SwiftProtobuf.Internal.emptyData}
@@ -1314,7 +1518,7 @@ struct SignalServiceProtos_SyncMessage {
   /// Returns true if `padding` has been explicitly set.
   var hasPadding: Bool {return _storage._padding != nil}
   /// Clears the value of `padding`. Subsequent reads from it will return its default value.
-  mutating func clearPadding() {_storage._padding = nil}
+  mutating func clearPadding() {_uniqueStorage()._padding = nil}
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -1330,7 +1534,7 @@ struct SignalServiceProtos_SyncMessage {
     /// Returns true if `destination` has been explicitly set.
     var hasDestination: Bool {return _storage._destination != nil}
     /// Clears the value of `destination`. Subsequent reads from it will return its default value.
-    mutating func clearDestination() {_storage._destination = nil}
+    mutating func clearDestination() {_uniqueStorage()._destination = nil}
 
     var timestamp: UInt64 {
       get {return _storage._timestamp ?? 0}
@@ -1339,7 +1543,7 @@ struct SignalServiceProtos_SyncMessage {
     /// Returns true if `timestamp` has been explicitly set.
     var hasTimestamp: Bool {return _storage._timestamp != nil}
     /// Clears the value of `timestamp`. Subsequent reads from it will return its default value.
-    mutating func clearTimestamp() {_storage._timestamp = nil}
+    mutating func clearTimestamp() {_uniqueStorage()._timestamp = nil}
 
     var message: SignalServiceProtos_DataMessage {
       get {return _storage._message ?? SignalServiceProtos_DataMessage()}
@@ -1348,7 +1552,7 @@ struct SignalServiceProtos_SyncMessage {
     /// Returns true if `message` has been explicitly set.
     var hasMessage: Bool {return _storage._message != nil}
     /// Clears the value of `message`. Subsequent reads from it will return its default value.
-    mutating func clearMessage() {_storage._message = nil}
+    mutating func clearMessage() {_uniqueStorage()._message = nil}
 
     var expirationStartTimestamp: UInt64 {
       get {return _storage._expirationStartTimestamp ?? 0}
@@ -1357,9 +1561,45 @@ struct SignalServiceProtos_SyncMessage {
     /// Returns true if `expirationStartTimestamp` has been explicitly set.
     var hasExpirationStartTimestamp: Bool {return _storage._expirationStartTimestamp != nil}
     /// Clears the value of `expirationStartTimestamp`. Subsequent reads from it will return its default value.
-    mutating func clearExpirationStartTimestamp() {_storage._expirationStartTimestamp = nil}
+    mutating func clearExpirationStartTimestamp() {_uniqueStorage()._expirationStartTimestamp = nil}
+
+    var unidentifiedStatus: [SignalServiceProtos_SyncMessage.Sent.UnidentifiedDeliveryStatus] {
+      get {return _storage._unidentifiedStatus}
+      set {_uniqueStorage()._unidentifiedStatus = newValue}
+    }
 
     var unknownFields = SwiftProtobuf.UnknownStorage()
+
+    struct UnidentifiedDeliveryStatus {
+      // SwiftProtobuf.Message conformance is added in an extension below. See the
+      // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+      // methods supported on all messages.
+
+      var destination: String {
+        get {return _destination ?? String()}
+        set {_destination = newValue}
+      }
+      /// Returns true if `destination` has been explicitly set.
+      var hasDestination: Bool {return self._destination != nil}
+      /// Clears the value of `destination`. Subsequent reads from it will return its default value.
+      mutating func clearDestination() {self._destination = nil}
+
+      var unidentified: Bool {
+        get {return _unidentified ?? false}
+        set {_unidentified = newValue}
+      }
+      /// Returns true if `unidentified` has been explicitly set.
+      var hasUnidentified: Bool {return self._unidentified != nil}
+      /// Clears the value of `unidentified`. Subsequent reads from it will return its default value.
+      mutating func clearUnidentified() {self._unidentified = nil}
+
+      var unknownFields = SwiftProtobuf.UnknownStorage()
+
+      init() {}
+
+      fileprivate var _destination: String? = nil
+      fileprivate var _unidentified: Bool? = nil
+    }
 
     init() {}
 
@@ -1371,6 +1611,7 @@ struct SignalServiceProtos_SyncMessage {
     // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
     // methods supported on all messages.
 
+    /// @required
     var blob: SignalServiceProtos_AttachmentPointer {
       get {return _storage._blob ?? SignalServiceProtos_AttachmentPointer()}
       set {_uniqueStorage()._blob = newValue}
@@ -1378,7 +1619,7 @@ struct SignalServiceProtos_SyncMessage {
     /// Returns true if `blob` has been explicitly set.
     var hasBlob: Bool {return _storage._blob != nil}
     /// Clears the value of `blob`. Subsequent reads from it will return its default value.
-    mutating func clearBlob() {_storage._blob = nil}
+    mutating func clearBlob() {_uniqueStorage()._blob = nil}
 
     /// Signal-iOS renamed this property.
     var isComplete: Bool {
@@ -1388,7 +1629,7 @@ struct SignalServiceProtos_SyncMessage {
     /// Returns true if `isComplete` has been explicitly set.
     var hasIsComplete: Bool {return _storage._isComplete != nil}
     /// Clears the value of `isComplete`. Subsequent reads from it will return its default value.
-    mutating func clearIsComplete() {_storage._isComplete = nil}
+    mutating func clearIsComplete() {_uniqueStorage()._isComplete = nil}
 
     var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -1409,7 +1650,7 @@ struct SignalServiceProtos_SyncMessage {
     /// Returns true if `blob` has been explicitly set.
     var hasBlob: Bool {return _storage._blob != nil}
     /// Clears the value of `blob`. Subsequent reads from it will return its default value.
-    mutating func clearBlob() {_storage._blob = nil}
+    mutating func clearBlob() {_uniqueStorage()._blob = nil}
 
     var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -1425,6 +1666,8 @@ struct SignalServiceProtos_SyncMessage {
 
     var numbers: [String] = []
 
+    var groupIds: [Data] = []
+
     var unknownFields = SwiftProtobuf.UnknownStorage()
 
     init() {}
@@ -1435,6 +1678,7 @@ struct SignalServiceProtos_SyncMessage {
     // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
     // methods supported on all messages.
 
+    /// @required
     var type: SignalServiceProtos_SyncMessage.Request.TypeEnum {
       get {return _type ?? .unknown}
       set {_type = newValue}
@@ -1491,6 +1735,7 @@ struct SignalServiceProtos_SyncMessage {
     // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
     // methods supported on all messages.
 
+    /// @required
     var sender: String {
       get {return _sender ?? String()}
       set {_sender = newValue}
@@ -1500,6 +1745,7 @@ struct SignalServiceProtos_SyncMessage {
     /// Clears the value of `sender`. Subsequent reads from it will return its default value.
     mutating func clearSender() {self._sender = nil}
 
+    /// @required
     var timestamp: UInt64 {
       get {return _timestamp ?? 0}
       set {_timestamp = newValue}
@@ -1531,11 +1777,41 @@ struct SignalServiceProtos_SyncMessage {
     /// Clears the value of `readReceipts`. Subsequent reads from it will return its default value.
     mutating func clearReadReceipts() {self._readReceipts = nil}
 
+    var unidentifiedDeliveryIndicators: Bool {
+      get {return _unidentifiedDeliveryIndicators ?? false}
+      set {_unidentifiedDeliveryIndicators = newValue}
+    }
+    /// Returns true if `unidentifiedDeliveryIndicators` has been explicitly set.
+    var hasUnidentifiedDeliveryIndicators: Bool {return self._unidentifiedDeliveryIndicators != nil}
+    /// Clears the value of `unidentifiedDeliveryIndicators`. Subsequent reads from it will return its default value.
+    mutating func clearUnidentifiedDeliveryIndicators() {self._unidentifiedDeliveryIndicators = nil}
+
+    var typingIndicators: Bool {
+      get {return _typingIndicators ?? false}
+      set {_typingIndicators = newValue}
+    }
+    /// Returns true if `typingIndicators` has been explicitly set.
+    var hasTypingIndicators: Bool {return self._typingIndicators != nil}
+    /// Clears the value of `typingIndicators`. Subsequent reads from it will return its default value.
+    mutating func clearTypingIndicators() {self._typingIndicators = nil}
+
+    var linkPreviews: Bool {
+      get {return _linkPreviews ?? false}
+      set {_linkPreviews = newValue}
+    }
+    /// Returns true if `linkPreviews` has been explicitly set.
+    var hasLinkPreviews: Bool {return self._linkPreviews != nil}
+    /// Clears the value of `linkPreviews`. Subsequent reads from it will return its default value.
+    mutating func clearLinkPreviews() {self._linkPreviews = nil}
+
     var unknownFields = SwiftProtobuf.UnknownStorage()
 
     init() {}
 
     fileprivate var _readReceipts: Bool? = nil
+    fileprivate var _unidentifiedDeliveryIndicators: Bool? = nil
+    fileprivate var _typingIndicators: Bool? = nil
+    fileprivate var _linkPreviews: Bool? = nil
   }
 
   init() {}
@@ -1548,6 +1824,7 @@ struct SignalServiceProtos_AttachmentPointer {
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
+  /// @required
   var id: UInt64 {
     get {return _id ?? 0}
     set {_id = newValue}
@@ -1638,6 +1915,15 @@ struct SignalServiceProtos_AttachmentPointer {
   /// Clears the value of `height`. Subsequent reads from it will return its default value.
   mutating func clearHeight() {self._height = nil}
 
+  var caption: String {
+    get {return _caption ?? String()}
+    set {_caption = newValue}
+  }
+  /// Returns true if `caption` has been explicitly set.
+  var hasCaption: Bool {return self._caption != nil}
+  /// Clears the value of `caption`. Subsequent reads from it will return its default value.
+  mutating func clearCaption() {self._caption = nil}
+
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
   enum Flags: SwiftProtobuf.Enum {
@@ -1675,13 +1961,23 @@ struct SignalServiceProtos_AttachmentPointer {
   fileprivate var _flags: UInt32? = nil
   fileprivate var _width: UInt32? = nil
   fileprivate var _height: UInt32? = nil
+  fileprivate var _caption: String? = nil
 }
+
+#if swift(>=4.2)
+
+extension SignalServiceProtos_AttachmentPointer.Flags: CaseIterable {
+  // Support synthesized by the compiler.
+}
+
+#endif  // swift(>=4.2)
 
 struct SignalServiceProtos_GroupContext {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
+  /// @required
   var id: Data {
     get {return _storage._id ?? SwiftProtobuf.Internal.emptyData}
     set {_uniqueStorage()._id = newValue}
@@ -1689,8 +1985,9 @@ struct SignalServiceProtos_GroupContext {
   /// Returns true if `id` has been explicitly set.
   var hasID: Bool {return _storage._id != nil}
   /// Clears the value of `id`. Subsequent reads from it will return its default value.
-  mutating func clearID() {_storage._id = nil}
+  mutating func clearID() {_uniqueStorage()._id = nil}
 
+  /// @required
   var type: SignalServiceProtos_GroupContext.TypeEnum {
     get {return _storage._type ?? .unknown}
     set {_uniqueStorage()._type = newValue}
@@ -1698,7 +1995,7 @@ struct SignalServiceProtos_GroupContext {
   /// Returns true if `type` has been explicitly set.
   var hasType: Bool {return _storage._type != nil}
   /// Clears the value of `type`. Subsequent reads from it will return its default value.
-  mutating func clearType() {_storage._type = nil}
+  mutating func clearType() {_uniqueStorage()._type = nil}
 
   var name: String {
     get {return _storage._name ?? String()}
@@ -1707,7 +2004,7 @@ struct SignalServiceProtos_GroupContext {
   /// Returns true if `name` has been explicitly set.
   var hasName: Bool {return _storage._name != nil}
   /// Clears the value of `name`. Subsequent reads from it will return its default value.
-  mutating func clearName() {_storage._name = nil}
+  mutating func clearName() {_uniqueStorage()._name = nil}
 
   var members: [String] {
     get {return _storage._members}
@@ -1721,7 +2018,7 @@ struct SignalServiceProtos_GroupContext {
   /// Returns true if `avatar` has been explicitly set.
   var hasAvatar: Bool {return _storage._avatar != nil}
   /// Clears the value of `avatar`. Subsequent reads from it will return its default value.
-  mutating func clearAvatar() {_storage._avatar = nil}
+  mutating func clearAvatar() {_uniqueStorage()._avatar = nil}
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -1765,11 +2062,20 @@ struct SignalServiceProtos_GroupContext {
   fileprivate var _storage = _StorageClass.defaultInstance
 }
 
+#if swift(>=4.2)
+
+extension SignalServiceProtos_GroupContext.TypeEnum: CaseIterable {
+  // Support synthesized by the compiler.
+}
+
+#endif  // swift(>=4.2)
+
 struct SignalServiceProtos_ContactDetails {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
+  /// @required
   var number: String {
     get {return _storage._number ?? String()}
     set {_uniqueStorage()._number = newValue}
@@ -1777,7 +2083,7 @@ struct SignalServiceProtos_ContactDetails {
   /// Returns true if `number` has been explicitly set.
   var hasNumber: Bool {return _storage._number != nil}
   /// Clears the value of `number`. Subsequent reads from it will return its default value.
-  mutating func clearNumber() {_storage._number = nil}
+  mutating func clearNumber() {_uniqueStorage()._number = nil}
 
   var name: String {
     get {return _storage._name ?? String()}
@@ -1786,7 +2092,7 @@ struct SignalServiceProtos_ContactDetails {
   /// Returns true if `name` has been explicitly set.
   var hasName: Bool {return _storage._name != nil}
   /// Clears the value of `name`. Subsequent reads from it will return its default value.
-  mutating func clearName() {_storage._name = nil}
+  mutating func clearName() {_uniqueStorage()._name = nil}
 
   var avatar: SignalServiceProtos_ContactDetails.Avatar {
     get {return _storage._avatar ?? SignalServiceProtos_ContactDetails.Avatar()}
@@ -1795,7 +2101,7 @@ struct SignalServiceProtos_ContactDetails {
   /// Returns true if `avatar` has been explicitly set.
   var hasAvatar: Bool {return _storage._avatar != nil}
   /// Clears the value of `avatar`. Subsequent reads from it will return its default value.
-  mutating func clearAvatar() {_storage._avatar = nil}
+  mutating func clearAvatar() {_uniqueStorage()._avatar = nil}
 
   var color: String {
     get {return _storage._color ?? String()}
@@ -1804,7 +2110,7 @@ struct SignalServiceProtos_ContactDetails {
   /// Returns true if `color` has been explicitly set.
   var hasColor: Bool {return _storage._color != nil}
   /// Clears the value of `color`. Subsequent reads from it will return its default value.
-  mutating func clearColor() {_storage._color = nil}
+  mutating func clearColor() {_uniqueStorage()._color = nil}
 
   var verified: SignalServiceProtos_Verified {
     get {return _storage._verified ?? SignalServiceProtos_Verified()}
@@ -1813,7 +2119,7 @@ struct SignalServiceProtos_ContactDetails {
   /// Returns true if `verified` has been explicitly set.
   var hasVerified: Bool {return _storage._verified != nil}
   /// Clears the value of `verified`. Subsequent reads from it will return its default value.
-  mutating func clearVerified() {_storage._verified = nil}
+  mutating func clearVerified() {_uniqueStorage()._verified = nil}
 
   var profileKey: Data {
     get {return _storage._profileKey ?? SwiftProtobuf.Internal.emptyData}
@@ -1822,7 +2128,7 @@ struct SignalServiceProtos_ContactDetails {
   /// Returns true if `profileKey` has been explicitly set.
   var hasProfileKey: Bool {return _storage._profileKey != nil}
   /// Clears the value of `profileKey`. Subsequent reads from it will return its default value.
-  mutating func clearProfileKey() {_storage._profileKey = nil}
+  mutating func clearProfileKey() {_uniqueStorage()._profileKey = nil}
 
   var blocked: Bool {
     get {return _storage._blocked ?? false}
@@ -1831,7 +2137,7 @@ struct SignalServiceProtos_ContactDetails {
   /// Returns true if `blocked` has been explicitly set.
   var hasBlocked: Bool {return _storage._blocked != nil}
   /// Clears the value of `blocked`. Subsequent reads from it will return its default value.
-  mutating func clearBlocked() {_storage._blocked = nil}
+  mutating func clearBlocked() {_uniqueStorage()._blocked = nil}
 
   var expireTimer: UInt32 {
     get {return _storage._expireTimer ?? 0}
@@ -1840,7 +2146,7 @@ struct SignalServiceProtos_ContactDetails {
   /// Returns true if `expireTimer` has been explicitly set.
   var hasExpireTimer: Bool {return _storage._expireTimer != nil}
   /// Clears the value of `expireTimer`. Subsequent reads from it will return its default value.
-  mutating func clearExpireTimer() {_storage._expireTimer = nil}
+  mutating func clearExpireTimer() {_uniqueStorage()._expireTimer = nil}
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -1885,6 +2191,7 @@ struct SignalServiceProtos_GroupDetails {
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
+  /// @required
   var id: Data {
     get {return _storage._id ?? SwiftProtobuf.Internal.emptyData}
     set {_uniqueStorage()._id = newValue}
@@ -1892,7 +2199,7 @@ struct SignalServiceProtos_GroupDetails {
   /// Returns true if `id` has been explicitly set.
   var hasID: Bool {return _storage._id != nil}
   /// Clears the value of `id`. Subsequent reads from it will return its default value.
-  mutating func clearID() {_storage._id = nil}
+  mutating func clearID() {_uniqueStorage()._id = nil}
 
   var name: String {
     get {return _storage._name ?? String()}
@@ -1901,7 +2208,7 @@ struct SignalServiceProtos_GroupDetails {
   /// Returns true if `name` has been explicitly set.
   var hasName: Bool {return _storage._name != nil}
   /// Clears the value of `name`. Subsequent reads from it will return its default value.
-  mutating func clearName() {_storage._name = nil}
+  mutating func clearName() {_uniqueStorage()._name = nil}
 
   var members: [String] {
     get {return _storage._members}
@@ -1915,7 +2222,7 @@ struct SignalServiceProtos_GroupDetails {
   /// Returns true if `avatar` has been explicitly set.
   var hasAvatar: Bool {return _storage._avatar != nil}
   /// Clears the value of `avatar`. Subsequent reads from it will return its default value.
-  mutating func clearAvatar() {_storage._avatar = nil}
+  mutating func clearAvatar() {_uniqueStorage()._avatar = nil}
 
   var active: Bool {
     get {return _storage._active ?? true}
@@ -1924,7 +2231,7 @@ struct SignalServiceProtos_GroupDetails {
   /// Returns true if `active` has been explicitly set.
   var hasActive: Bool {return _storage._active != nil}
   /// Clears the value of `active`. Subsequent reads from it will return its default value.
-  mutating func clearActive() {_storage._active = nil}
+  mutating func clearActive() {_uniqueStorage()._active = nil}
 
   var expireTimer: UInt32 {
     get {return _storage._expireTimer ?? 0}
@@ -1933,7 +2240,7 @@ struct SignalServiceProtos_GroupDetails {
   /// Returns true if `expireTimer` has been explicitly set.
   var hasExpireTimer: Bool {return _storage._expireTimer != nil}
   /// Clears the value of `expireTimer`. Subsequent reads from it will return its default value.
-  mutating func clearExpireTimer() {_storage._expireTimer = nil}
+  mutating func clearExpireTimer() {_uniqueStorage()._expireTimer = nil}
 
   var color: String {
     get {return _storage._color ?? String()}
@@ -1942,7 +2249,16 @@ struct SignalServiceProtos_GroupDetails {
   /// Returns true if `color` has been explicitly set.
   var hasColor: Bool {return _storage._color != nil}
   /// Clears the value of `color`. Subsequent reads from it will return its default value.
-  mutating func clearColor() {_storage._color = nil}
+  mutating func clearColor() {_uniqueStorage()._color = nil}
+
+  var blocked: Bool {
+    get {return _storage._blocked ?? false}
+    set {_uniqueStorage()._blocked = newValue}
+  }
+  /// Returns true if `blocked` has been explicitly set.
+  var hasBlocked: Bool {return _storage._blocked != nil}
+  /// Clears the value of `blocked`. Subsequent reads from it will return its default value.
+  mutating func clearBlocked() {_uniqueStorage()._blocked = nil}
 
   var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -1996,6 +2312,8 @@ extension SignalServiceProtos_Envelope: SwiftProtobuf.Message, SwiftProtobuf._Me
     5: .same(proto: "timestamp"),
     6: .same(proto: "legacyMessage"),
     8: .same(proto: "content"),
+    9: .same(proto: "serverGuid"),
+    10: .same(proto: "serverTimestamp"),
   ]
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -2008,6 +2326,8 @@ extension SignalServiceProtos_Envelope: SwiftProtobuf.Message, SwiftProtobuf._Me
       case 6: try decoder.decodeSingularBytesField(value: &self._legacyMessage)
       case 7: try decoder.decodeSingularUInt32Field(value: &self._sourceDevice)
       case 8: try decoder.decodeSingularBytesField(value: &self._content)
+      case 9: try decoder.decodeSingularStringField(value: &self._serverGuid)
+      case 10: try decoder.decodeSingularUInt64Field(value: &self._serverTimestamp)
       default: break
       }
     }
@@ -2035,18 +2355,26 @@ extension SignalServiceProtos_Envelope: SwiftProtobuf.Message, SwiftProtobuf._Me
     if let v = self._content {
       try visitor.visitSingularBytesField(value: v, fieldNumber: 8)
     }
+    if let v = self._serverGuid {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 9)
+    }
+    if let v = self._serverTimestamp {
+      try visitor.visitSingularUInt64Field(value: v, fieldNumber: 10)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  func _protobuf_generated_isEqualTo(other: SignalServiceProtos_Envelope) -> Bool {
-    if self._type != other._type {return false}
-    if self._source != other._source {return false}
-    if self._sourceDevice != other._sourceDevice {return false}
-    if self._relay != other._relay {return false}
-    if self._timestamp != other._timestamp {return false}
-    if self._legacyMessage != other._legacyMessage {return false}
-    if self._content != other._content {return false}
-    if unknownFields != other.unknownFields {return false}
+  static func ==(lhs: SignalServiceProtos_Envelope, rhs: SignalServiceProtos_Envelope) -> Bool {
+    if lhs._type != rhs._type {return false}
+    if lhs._source != rhs._source {return false}
+    if lhs._sourceDevice != rhs._sourceDevice {return false}
+    if lhs._relay != rhs._relay {return false}
+    if lhs._timestamp != rhs._timestamp {return false}
+    if lhs._legacyMessage != rhs._legacyMessage {return false}
+    if lhs._content != rhs._content {return false}
+    if lhs._serverGuid != rhs._serverGuid {return false}
+    if lhs._serverTimestamp != rhs._serverTimestamp {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
@@ -2058,6 +2386,55 @@ extension SignalServiceProtos_Envelope.TypeEnum: SwiftProtobuf._ProtoNameProvidi
     2: .same(proto: "KEY_EXCHANGE"),
     3: .same(proto: "PREKEY_BUNDLE"),
     5: .same(proto: "RECEIPT"),
+    6: .same(proto: "UNIDENTIFIED_SENDER"),
+  ]
+}
+
+extension SignalServiceProtos_TypingMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = _protobuf_package + ".TypingMessage"
+  static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "timestamp"),
+    2: .same(proto: "action"),
+    3: .same(proto: "groupId"),
+  ]
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      switch fieldNumber {
+      case 1: try decoder.decodeSingularUInt64Field(value: &self._timestamp)
+      case 2: try decoder.decodeSingularEnumField(value: &self._action)
+      case 3: try decoder.decodeSingularBytesField(value: &self._groupID)
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if let v = self._timestamp {
+      try visitor.visitSingularUInt64Field(value: v, fieldNumber: 1)
+    }
+    if let v = self._action {
+      try visitor.visitSingularEnumField(value: v, fieldNumber: 2)
+    }
+    if let v = self._groupID {
+      try visitor.visitSingularBytesField(value: v, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: SignalServiceProtos_TypingMessage, rhs: SignalServiceProtos_TypingMessage) -> Bool {
+    if lhs._timestamp != rhs._timestamp {return false}
+    if lhs._action != rhs._action {return false}
+    if lhs._groupID != rhs._groupID {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension SignalServiceProtos_TypingMessage.Action: SwiftProtobuf._ProtoNameProviding {
+  static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    0: .same(proto: "STARTED"),
+    1: .same(proto: "STOPPED"),
   ]
 }
 
@@ -2069,6 +2446,7 @@ extension SignalServiceProtos_Content: SwiftProtobuf.Message, SwiftProtobuf._Mes
     3: .same(proto: "callMessage"),
     4: .same(proto: "nullMessage"),
     5: .same(proto: "receiptMessage"),
+    6: .same(proto: "typingMessage"),
   ]
 
   fileprivate class _StorageClass {
@@ -2077,6 +2455,7 @@ extension SignalServiceProtos_Content: SwiftProtobuf.Message, SwiftProtobuf._Mes
     var _callMessage: SignalServiceProtos_CallMessage? = nil
     var _nullMessage: SignalServiceProtos_NullMessage? = nil
     var _receiptMessage: SignalServiceProtos_ReceiptMessage? = nil
+    var _typingMessage: SignalServiceProtos_TypingMessage? = nil
 
     static let defaultInstance = _StorageClass()
 
@@ -2088,6 +2467,7 @@ extension SignalServiceProtos_Content: SwiftProtobuf.Message, SwiftProtobuf._Mes
       _callMessage = source._callMessage
       _nullMessage = source._nullMessage
       _receiptMessage = source._receiptMessage
+      _typingMessage = source._typingMessage
     }
   }
 
@@ -2108,6 +2488,7 @@ extension SignalServiceProtos_Content: SwiftProtobuf.Message, SwiftProtobuf._Mes
         case 3: try decoder.decodeSingularMessageField(value: &_storage._callMessage)
         case 4: try decoder.decodeSingularMessageField(value: &_storage._nullMessage)
         case 5: try decoder.decodeSingularMessageField(value: &_storage._receiptMessage)
+        case 6: try decoder.decodeSingularMessageField(value: &_storage._typingMessage)
         default: break
         }
       }
@@ -2131,25 +2512,29 @@ extension SignalServiceProtos_Content: SwiftProtobuf.Message, SwiftProtobuf._Mes
       if let v = _storage._receiptMessage {
         try visitor.visitSingularMessageField(value: v, fieldNumber: 5)
       }
+      if let v = _storage._typingMessage {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 6)
+      }
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  func _protobuf_generated_isEqualTo(other: SignalServiceProtos_Content) -> Bool {
-    if _storage !== other._storage {
-      let storagesAreEqual: Bool = withExtendedLifetime((_storage, other._storage)) { (_args: (_StorageClass, _StorageClass)) in
+  static func ==(lhs: SignalServiceProtos_Content, rhs: SignalServiceProtos_Content) -> Bool {
+    if lhs._storage !== rhs._storage {
+      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
         let _storage = _args.0
-        let other_storage = _args.1
-        if _storage._dataMessage != other_storage._dataMessage {return false}
-        if _storage._syncMessage != other_storage._syncMessage {return false}
-        if _storage._callMessage != other_storage._callMessage {return false}
-        if _storage._nullMessage != other_storage._nullMessage {return false}
-        if _storage._receiptMessage != other_storage._receiptMessage {return false}
+        let rhs_storage = _args.1
+        if _storage._dataMessage != rhs_storage._dataMessage {return false}
+        if _storage._syncMessage != rhs_storage._syncMessage {return false}
+        if _storage._callMessage != rhs_storage._callMessage {return false}
+        if _storage._nullMessage != rhs_storage._nullMessage {return false}
+        if _storage._receiptMessage != rhs_storage._receiptMessage {return false}
+        if _storage._typingMessage != rhs_storage._typingMessage {return false}
         return true
       }
       if !storagesAreEqual {return false}
     }
-    if unknownFields != other.unknownFields {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
@@ -2235,22 +2620,22 @@ extension SignalServiceProtos_CallMessage: SwiftProtobuf.Message, SwiftProtobuf.
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  func _protobuf_generated_isEqualTo(other: SignalServiceProtos_CallMessage) -> Bool {
-    if _storage !== other._storage {
-      let storagesAreEqual: Bool = withExtendedLifetime((_storage, other._storage)) { (_args: (_StorageClass, _StorageClass)) in
+  static func ==(lhs: SignalServiceProtos_CallMessage, rhs: SignalServiceProtos_CallMessage) -> Bool {
+    if lhs._storage !== rhs._storage {
+      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
         let _storage = _args.0
-        let other_storage = _args.1
-        if _storage._offer != other_storage._offer {return false}
-        if _storage._answer != other_storage._answer {return false}
-        if _storage._iceUpdate != other_storage._iceUpdate {return false}
-        if _storage._hangup != other_storage._hangup {return false}
-        if _storage._busy != other_storage._busy {return false}
-        if _storage._profileKey != other_storage._profileKey {return false}
+        let rhs_storage = _args.1
+        if _storage._offer != rhs_storage._offer {return false}
+        if _storage._answer != rhs_storage._answer {return false}
+        if _storage._iceUpdate != rhs_storage._iceUpdate {return false}
+        if _storage._hangup != rhs_storage._hangup {return false}
+        if _storage._busy != rhs_storage._busy {return false}
+        if _storage._profileKey != rhs_storage._profileKey {return false}
         return true
       }
       if !storagesAreEqual {return false}
     }
-    if unknownFields != other.unknownFields {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
@@ -2282,10 +2667,10 @@ extension SignalServiceProtos_CallMessage.Offer: SwiftProtobuf.Message, SwiftPro
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  func _protobuf_generated_isEqualTo(other: SignalServiceProtos_CallMessage.Offer) -> Bool {
-    if self._id != other._id {return false}
-    if self._sessionDescription != other._sessionDescription {return false}
-    if unknownFields != other.unknownFields {return false}
+  static func ==(lhs: SignalServiceProtos_CallMessage.Offer, rhs: SignalServiceProtos_CallMessage.Offer) -> Bool {
+    if lhs._id != rhs._id {return false}
+    if lhs._sessionDescription != rhs._sessionDescription {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
@@ -2317,10 +2702,10 @@ extension SignalServiceProtos_CallMessage.Answer: SwiftProtobuf.Message, SwiftPr
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  func _protobuf_generated_isEqualTo(other: SignalServiceProtos_CallMessage.Answer) -> Bool {
-    if self._id != other._id {return false}
-    if self._sessionDescription != other._sessionDescription {return false}
-    if unknownFields != other.unknownFields {return false}
+  static func ==(lhs: SignalServiceProtos_CallMessage.Answer, rhs: SignalServiceProtos_CallMessage.Answer) -> Bool {
+    if lhs._id != rhs._id {return false}
+    if lhs._sessionDescription != rhs._sessionDescription {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
@@ -2362,12 +2747,12 @@ extension SignalServiceProtos_CallMessage.IceUpdate: SwiftProtobuf.Message, Swif
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  func _protobuf_generated_isEqualTo(other: SignalServiceProtos_CallMessage.IceUpdate) -> Bool {
-    if self._id != other._id {return false}
-    if self._sdpMid != other._sdpMid {return false}
-    if self._sdpMlineIndex != other._sdpMlineIndex {return false}
-    if self._sdp != other._sdp {return false}
-    if unknownFields != other.unknownFields {return false}
+  static func ==(lhs: SignalServiceProtos_CallMessage.IceUpdate, rhs: SignalServiceProtos_CallMessage.IceUpdate) -> Bool {
+    if lhs._id != rhs._id {return false}
+    if lhs._sdpMid != rhs._sdpMid {return false}
+    if lhs._sdpMlineIndex != rhs._sdpMlineIndex {return false}
+    if lhs._sdp != rhs._sdp {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
@@ -2394,9 +2779,9 @@ extension SignalServiceProtos_CallMessage.Busy: SwiftProtobuf.Message, SwiftProt
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  func _protobuf_generated_isEqualTo(other: SignalServiceProtos_CallMessage.Busy) -> Bool {
-    if self._id != other._id {return false}
-    if unknownFields != other.unknownFields {return false}
+  static func ==(lhs: SignalServiceProtos_CallMessage.Busy, rhs: SignalServiceProtos_CallMessage.Busy) -> Bool {
+    if lhs._id != rhs._id {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
@@ -2423,9 +2808,9 @@ extension SignalServiceProtos_CallMessage.Hangup: SwiftProtobuf.Message, SwiftPr
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  func _protobuf_generated_isEqualTo(other: SignalServiceProtos_CallMessage.Hangup) -> Bool {
-    if self._id != other._id {return false}
-    if unknownFields != other.unknownFields {return false}
+  static func ==(lhs: SignalServiceProtos_CallMessage.Hangup, rhs: SignalServiceProtos_CallMessage.Hangup) -> Bool {
+    if lhs._id != rhs._id {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
@@ -2442,6 +2827,7 @@ extension SignalServiceProtos_DataMessage: SwiftProtobuf.Message, SwiftProtobuf.
     7: .same(proto: "timestamp"),
     8: .same(proto: "quote"),
     9: .same(proto: "contact"),
+    10: .same(proto: "preview"),
   ]
 
   fileprivate class _StorageClass {
@@ -2454,6 +2840,7 @@ extension SignalServiceProtos_DataMessage: SwiftProtobuf.Message, SwiftProtobuf.
     var _timestamp: UInt64? = nil
     var _quote: SignalServiceProtos_DataMessage.Quote? = nil
     var _contact: [SignalServiceProtos_DataMessage.Contact] = []
+    var _preview: [SignalServiceProtos_DataMessage.Preview] = []
 
     static let defaultInstance = _StorageClass()
 
@@ -2469,6 +2856,7 @@ extension SignalServiceProtos_DataMessage: SwiftProtobuf.Message, SwiftProtobuf.
       _timestamp = source._timestamp
       _quote = source._quote
       _contact = source._contact
+      _preview = source._preview
     }
   }
 
@@ -2493,6 +2881,7 @@ extension SignalServiceProtos_DataMessage: SwiftProtobuf.Message, SwiftProtobuf.
         case 7: try decoder.decodeSingularUInt64Field(value: &_storage._timestamp)
         case 8: try decoder.decodeSingularMessageField(value: &_storage._quote)
         case 9: try decoder.decodeRepeatedMessageField(value: &_storage._contact)
+        case 10: try decoder.decodeRepeatedMessageField(value: &_storage._preview)
         default: break
         }
       }
@@ -2528,29 +2917,33 @@ extension SignalServiceProtos_DataMessage: SwiftProtobuf.Message, SwiftProtobuf.
       if !_storage._contact.isEmpty {
         try visitor.visitRepeatedMessageField(value: _storage._contact, fieldNumber: 9)
       }
+      if !_storage._preview.isEmpty {
+        try visitor.visitRepeatedMessageField(value: _storage._preview, fieldNumber: 10)
+      }
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  func _protobuf_generated_isEqualTo(other: SignalServiceProtos_DataMessage) -> Bool {
-    if _storage !== other._storage {
-      let storagesAreEqual: Bool = withExtendedLifetime((_storage, other._storage)) { (_args: (_StorageClass, _StorageClass)) in
+  static func ==(lhs: SignalServiceProtos_DataMessage, rhs: SignalServiceProtos_DataMessage) -> Bool {
+    if lhs._storage !== rhs._storage {
+      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
         let _storage = _args.0
-        let other_storage = _args.1
-        if _storage._body != other_storage._body {return false}
-        if _storage._attachments != other_storage._attachments {return false}
-        if _storage._group != other_storage._group {return false}
-        if _storage._flags != other_storage._flags {return false}
-        if _storage._expireTimer != other_storage._expireTimer {return false}
-        if _storage._profileKey != other_storage._profileKey {return false}
-        if _storage._timestamp != other_storage._timestamp {return false}
-        if _storage._quote != other_storage._quote {return false}
-        if _storage._contact != other_storage._contact {return false}
+        let rhs_storage = _args.1
+        if _storage._body != rhs_storage._body {return false}
+        if _storage._attachments != rhs_storage._attachments {return false}
+        if _storage._group != rhs_storage._group {return false}
+        if _storage._flags != rhs_storage._flags {return false}
+        if _storage._expireTimer != rhs_storage._expireTimer {return false}
+        if _storage._profileKey != rhs_storage._profileKey {return false}
+        if _storage._timestamp != rhs_storage._timestamp {return false}
+        if _storage._quote != rhs_storage._quote {return false}
+        if _storage._contact != rhs_storage._contact {return false}
+        if _storage._preview != rhs_storage._preview {return false}
         return true
       }
       if !storagesAreEqual {return false}
     }
-    if unknownFields != other.unknownFields {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
@@ -2600,12 +2993,12 @@ extension SignalServiceProtos_DataMessage.Quote: SwiftProtobuf.Message, SwiftPro
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  func _protobuf_generated_isEqualTo(other: SignalServiceProtos_DataMessage.Quote) -> Bool {
-    if self._id != other._id {return false}
-    if self._author != other._author {return false}
-    if self._text != other._text {return false}
-    if self.attachments != other.attachments {return false}
-    if unknownFields != other.unknownFields {return false}
+  static func ==(lhs: SignalServiceProtos_DataMessage.Quote, rhs: SignalServiceProtos_DataMessage.Quote) -> Bool {
+    if lhs._id != rhs._id {return false}
+    if lhs._author != rhs._author {return false}
+    if lhs._text != rhs._text {return false}
+    if lhs.attachments != rhs.attachments {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
@@ -2677,20 +3070,20 @@ extension SignalServiceProtos_DataMessage.Quote.QuotedAttachment: SwiftProtobuf.
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  func _protobuf_generated_isEqualTo(other: SignalServiceProtos_DataMessage.Quote.QuotedAttachment) -> Bool {
-    if _storage !== other._storage {
-      let storagesAreEqual: Bool = withExtendedLifetime((_storage, other._storage)) { (_args: (_StorageClass, _StorageClass)) in
+  static func ==(lhs: SignalServiceProtos_DataMessage.Quote.QuotedAttachment, rhs: SignalServiceProtos_DataMessage.Quote.QuotedAttachment) -> Bool {
+    if lhs._storage !== rhs._storage {
+      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
         let _storage = _args.0
-        let other_storage = _args.1
-        if _storage._contentType != other_storage._contentType {return false}
-        if _storage._fileName != other_storage._fileName {return false}
-        if _storage._thumbnail != other_storage._thumbnail {return false}
-        if _storage._flags != other_storage._flags {return false}
+        let rhs_storage = _args.1
+        if _storage._contentType != rhs_storage._contentType {return false}
+        if _storage._fileName != rhs_storage._fileName {return false}
+        if _storage._thumbnail != rhs_storage._thumbnail {return false}
+        if _storage._flags != rhs_storage._flags {return false}
         return true
       }
       if !storagesAreEqual {return false}
     }
-    if unknownFields != other.unknownFields {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
@@ -2782,22 +3175,22 @@ extension SignalServiceProtos_DataMessage.Contact: SwiftProtobuf.Message, SwiftP
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  func _protobuf_generated_isEqualTo(other: SignalServiceProtos_DataMessage.Contact) -> Bool {
-    if _storage !== other._storage {
-      let storagesAreEqual: Bool = withExtendedLifetime((_storage, other._storage)) { (_args: (_StorageClass, _StorageClass)) in
+  static func ==(lhs: SignalServiceProtos_DataMessage.Contact, rhs: SignalServiceProtos_DataMessage.Contact) -> Bool {
+    if lhs._storage !== rhs._storage {
+      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
         let _storage = _args.0
-        let other_storage = _args.1
-        if _storage._name != other_storage._name {return false}
-        if _storage._number != other_storage._number {return false}
-        if _storage._email != other_storage._email {return false}
-        if _storage._address != other_storage._address {return false}
-        if _storage._avatar != other_storage._avatar {return false}
-        if _storage._organization != other_storage._organization {return false}
+        let rhs_storage = _args.1
+        if _storage._name != rhs_storage._name {return false}
+        if _storage._number != rhs_storage._number {return false}
+        if _storage._email != rhs_storage._email {return false}
+        if _storage._address != rhs_storage._address {return false}
+        if _storage._avatar != rhs_storage._avatar {return false}
+        if _storage._organization != rhs_storage._organization {return false}
         return true
       }
       if !storagesAreEqual {return false}
     }
-    if unknownFields != other.unknownFields {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
@@ -2849,14 +3242,14 @@ extension SignalServiceProtos_DataMessage.Contact.Name: SwiftProtobuf.Message, S
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  func _protobuf_generated_isEqualTo(other: SignalServiceProtos_DataMessage.Contact.Name) -> Bool {
-    if self._givenName != other._givenName {return false}
-    if self._familyName != other._familyName {return false}
-    if self._prefix != other._prefix {return false}
-    if self._suffix != other._suffix {return false}
-    if self._middleName != other._middleName {return false}
-    if self._displayName != other._displayName {return false}
-    if unknownFields != other.unknownFields {return false}
+  static func ==(lhs: SignalServiceProtos_DataMessage.Contact.Name, rhs: SignalServiceProtos_DataMessage.Contact.Name) -> Bool {
+    if lhs._givenName != rhs._givenName {return false}
+    if lhs._familyName != rhs._familyName {return false}
+    if lhs._prefix != rhs._prefix {return false}
+    if lhs._suffix != rhs._suffix {return false}
+    if lhs._middleName != rhs._middleName {return false}
+    if lhs._displayName != rhs._displayName {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
@@ -2893,11 +3286,11 @@ extension SignalServiceProtos_DataMessage.Contact.Phone: SwiftProtobuf.Message, 
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  func _protobuf_generated_isEqualTo(other: SignalServiceProtos_DataMessage.Contact.Phone) -> Bool {
-    if self._value != other._value {return false}
-    if self._type != other._type {return false}
-    if self._label != other._label {return false}
-    if unknownFields != other.unknownFields {return false}
+  static func ==(lhs: SignalServiceProtos_DataMessage.Contact.Phone, rhs: SignalServiceProtos_DataMessage.Contact.Phone) -> Bool {
+    if lhs._value != rhs._value {return false}
+    if lhs._type != rhs._type {return false}
+    if lhs._label != rhs._label {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
@@ -2943,11 +3336,11 @@ extension SignalServiceProtos_DataMessage.Contact.Email: SwiftProtobuf.Message, 
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  func _protobuf_generated_isEqualTo(other: SignalServiceProtos_DataMessage.Contact.Email) -> Bool {
-    if self._value != other._value {return false}
-    if self._type != other._type {return false}
-    if self._label != other._label {return false}
-    if unknownFields != other.unknownFields {return false}
+  static func ==(lhs: SignalServiceProtos_DataMessage.Contact.Email, rhs: SignalServiceProtos_DataMessage.Contact.Email) -> Bool {
+    if lhs._value != rhs._value {return false}
+    if lhs._type != rhs._type {return false}
+    if lhs._label != rhs._label {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
@@ -3023,17 +3416,17 @@ extension SignalServiceProtos_DataMessage.Contact.PostalAddress: SwiftProtobuf.M
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  func _protobuf_generated_isEqualTo(other: SignalServiceProtos_DataMessage.Contact.PostalAddress) -> Bool {
-    if self._type != other._type {return false}
-    if self._label != other._label {return false}
-    if self._street != other._street {return false}
-    if self._pobox != other._pobox {return false}
-    if self._neighborhood != other._neighborhood {return false}
-    if self._city != other._city {return false}
-    if self._region != other._region {return false}
-    if self._postcode != other._postcode {return false}
-    if self._country != other._country {return false}
-    if unknownFields != other.unknownFields {return false}
+  static func ==(lhs: SignalServiceProtos_DataMessage.Contact.PostalAddress, rhs: SignalServiceProtos_DataMessage.Contact.PostalAddress) -> Bool {
+    if lhs._type != rhs._type {return false}
+    if lhs._label != rhs._label {return false}
+    if lhs._street != rhs._street {return false}
+    if lhs._pobox != rhs._pobox {return false}
+    if lhs._neighborhood != rhs._neighborhood {return false}
+    if lhs._city != rhs._city {return false}
+    if lhs._region != rhs._region {return false}
+    if lhs._postcode != rhs._postcode {return false}
+    if lhs._country != rhs._country {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
@@ -3099,18 +3492,95 @@ extension SignalServiceProtos_DataMessage.Contact.Avatar: SwiftProtobuf.Message,
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  func _protobuf_generated_isEqualTo(other: SignalServiceProtos_DataMessage.Contact.Avatar) -> Bool {
-    if _storage !== other._storage {
-      let storagesAreEqual: Bool = withExtendedLifetime((_storage, other._storage)) { (_args: (_StorageClass, _StorageClass)) in
+  static func ==(lhs: SignalServiceProtos_DataMessage.Contact.Avatar, rhs: SignalServiceProtos_DataMessage.Contact.Avatar) -> Bool {
+    if lhs._storage !== rhs._storage {
+      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
         let _storage = _args.0
-        let other_storage = _args.1
-        if _storage._avatar != other_storage._avatar {return false}
-        if _storage._isProfile != other_storage._isProfile {return false}
+        let rhs_storage = _args.1
+        if _storage._avatar != rhs_storage._avatar {return false}
+        if _storage._isProfile != rhs_storage._isProfile {return false}
         return true
       }
       if !storagesAreEqual {return false}
     }
-    if unknownFields != other.unknownFields {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension SignalServiceProtos_DataMessage.Preview: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = SignalServiceProtos_DataMessage.protoMessageName + ".Preview"
+  static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "url"),
+    2: .same(proto: "title"),
+    3: .same(proto: "image"),
+  ]
+
+  fileprivate class _StorageClass {
+    var _url: String? = nil
+    var _title: String? = nil
+    var _image: SignalServiceProtos_AttachmentPointer? = nil
+
+    static let defaultInstance = _StorageClass()
+
+    private init() {}
+
+    init(copying source: _StorageClass) {
+      _url = source._url
+      _title = source._title
+      _image = source._image
+    }
+  }
+
+  fileprivate mutating func _uniqueStorage() -> _StorageClass {
+    if !isKnownUniquelyReferenced(&_storage) {
+      _storage = _StorageClass(copying: _storage)
+    }
+    return _storage
+  }
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    _ = _uniqueStorage()
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      while let fieldNumber = try decoder.nextFieldNumber() {
+        switch fieldNumber {
+        case 1: try decoder.decodeSingularStringField(value: &_storage._url)
+        case 2: try decoder.decodeSingularStringField(value: &_storage._title)
+        case 3: try decoder.decodeSingularMessageField(value: &_storage._image)
+        default: break
+        }
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      if let v = _storage._url {
+        try visitor.visitSingularStringField(value: v, fieldNumber: 1)
+      }
+      if let v = _storage._title {
+        try visitor.visitSingularStringField(value: v, fieldNumber: 2)
+      }
+      if let v = _storage._image {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
+      }
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: SignalServiceProtos_DataMessage.Preview, rhs: SignalServiceProtos_DataMessage.Preview) -> Bool {
+    if lhs._storage !== rhs._storage {
+      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
+        let _storage = _args.0
+        let rhs_storage = _args.1
+        if _storage._url != rhs_storage._url {return false}
+        if _storage._title != rhs_storage._title {return false}
+        if _storage._image != rhs_storage._image {return false}
+        return true
+      }
+      if !storagesAreEqual {return false}
+    }
+    if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
@@ -3137,9 +3607,9 @@ extension SignalServiceProtos_NullMessage: SwiftProtobuf.Message, SwiftProtobuf.
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  func _protobuf_generated_isEqualTo(other: SignalServiceProtos_NullMessage) -> Bool {
-    if self._padding != other._padding {return false}
-    if unknownFields != other.unknownFields {return false}
+  static func ==(lhs: SignalServiceProtos_NullMessage, rhs: SignalServiceProtos_NullMessage) -> Bool {
+    if lhs._padding != rhs._padding {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
@@ -3171,10 +3641,10 @@ extension SignalServiceProtos_ReceiptMessage: SwiftProtobuf.Message, SwiftProtob
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  func _protobuf_generated_isEqualTo(other: SignalServiceProtos_ReceiptMessage) -> Bool {
-    if self._type != other._type {return false}
-    if self.timestamp != other.timestamp {return false}
-    if unknownFields != other.unknownFields {return false}
+  static func ==(lhs: SignalServiceProtos_ReceiptMessage, rhs: SignalServiceProtos_ReceiptMessage) -> Bool {
+    if lhs._type != rhs._type {return false}
+    if lhs.timestamp != rhs.timestamp {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
@@ -3223,12 +3693,12 @@ extension SignalServiceProtos_Verified: SwiftProtobuf.Message, SwiftProtobuf._Me
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  func _protobuf_generated_isEqualTo(other: SignalServiceProtos_Verified) -> Bool {
-    if self._destination != other._destination {return false}
-    if self._identityKey != other._identityKey {return false}
-    if self._state != other._state {return false}
-    if self._nullMessage != other._nullMessage {return false}
-    if unknownFields != other.unknownFields {return false}
+  static func ==(lhs: SignalServiceProtos_Verified, rhs: SignalServiceProtos_Verified) -> Bool {
+    if lhs._destination != rhs._destination {return false}
+    if lhs._identityKey != rhs._identityKey {return false}
+    if lhs._state != rhs._state {return false}
+    if lhs._nullMessage != rhs._nullMessage {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
@@ -3343,25 +3813,25 @@ extension SignalServiceProtos_SyncMessage: SwiftProtobuf.Message, SwiftProtobuf.
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  func _protobuf_generated_isEqualTo(other: SignalServiceProtos_SyncMessage) -> Bool {
-    if _storage !== other._storage {
-      let storagesAreEqual: Bool = withExtendedLifetime((_storage, other._storage)) { (_args: (_StorageClass, _StorageClass)) in
+  static func ==(lhs: SignalServiceProtos_SyncMessage, rhs: SignalServiceProtos_SyncMessage) -> Bool {
+    if lhs._storage !== rhs._storage {
+      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
         let _storage = _args.0
-        let other_storage = _args.1
-        if _storage._sent != other_storage._sent {return false}
-        if _storage._contacts != other_storage._contacts {return false}
-        if _storage._groups != other_storage._groups {return false}
-        if _storage._request != other_storage._request {return false}
-        if _storage._read != other_storage._read {return false}
-        if _storage._blocked != other_storage._blocked {return false}
-        if _storage._verified != other_storage._verified {return false}
-        if _storage._configuration != other_storage._configuration {return false}
-        if _storage._padding != other_storage._padding {return false}
+        let rhs_storage = _args.1
+        if _storage._sent != rhs_storage._sent {return false}
+        if _storage._contacts != rhs_storage._contacts {return false}
+        if _storage._groups != rhs_storage._groups {return false}
+        if _storage._request != rhs_storage._request {return false}
+        if _storage._read != rhs_storage._read {return false}
+        if _storage._blocked != rhs_storage._blocked {return false}
+        if _storage._verified != rhs_storage._verified {return false}
+        if _storage._configuration != rhs_storage._configuration {return false}
+        if _storage._padding != rhs_storage._padding {return false}
         return true
       }
       if !storagesAreEqual {return false}
     }
-    if unknownFields != other.unknownFields {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
@@ -3373,6 +3843,7 @@ extension SignalServiceProtos_SyncMessage.Sent: SwiftProtobuf.Message, SwiftProt
     2: .same(proto: "timestamp"),
     3: .same(proto: "message"),
     4: .same(proto: "expirationStartTimestamp"),
+    5: .same(proto: "unidentifiedStatus"),
   ]
 
   fileprivate class _StorageClass {
@@ -3380,6 +3851,7 @@ extension SignalServiceProtos_SyncMessage.Sent: SwiftProtobuf.Message, SwiftProt
     var _timestamp: UInt64? = nil
     var _message: SignalServiceProtos_DataMessage? = nil
     var _expirationStartTimestamp: UInt64? = nil
+    var _unidentifiedStatus: [SignalServiceProtos_SyncMessage.Sent.UnidentifiedDeliveryStatus] = []
 
     static let defaultInstance = _StorageClass()
 
@@ -3390,6 +3862,7 @@ extension SignalServiceProtos_SyncMessage.Sent: SwiftProtobuf.Message, SwiftProt
       _timestamp = source._timestamp
       _message = source._message
       _expirationStartTimestamp = source._expirationStartTimestamp
+      _unidentifiedStatus = source._unidentifiedStatus
     }
   }
 
@@ -3409,6 +3882,7 @@ extension SignalServiceProtos_SyncMessage.Sent: SwiftProtobuf.Message, SwiftProt
         case 2: try decoder.decodeSingularUInt64Field(value: &_storage._timestamp)
         case 3: try decoder.decodeSingularMessageField(value: &_storage._message)
         case 4: try decoder.decodeSingularUInt64Field(value: &_storage._expirationStartTimestamp)
+        case 5: try decoder.decodeRepeatedMessageField(value: &_storage._unidentifiedStatus)
         default: break
         }
       }
@@ -3429,24 +3903,63 @@ extension SignalServiceProtos_SyncMessage.Sent: SwiftProtobuf.Message, SwiftProt
       if let v = _storage._expirationStartTimestamp {
         try visitor.visitSingularUInt64Field(value: v, fieldNumber: 4)
       }
+      if !_storage._unidentifiedStatus.isEmpty {
+        try visitor.visitRepeatedMessageField(value: _storage._unidentifiedStatus, fieldNumber: 5)
+      }
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  func _protobuf_generated_isEqualTo(other: SignalServiceProtos_SyncMessage.Sent) -> Bool {
-    if _storage !== other._storage {
-      let storagesAreEqual: Bool = withExtendedLifetime((_storage, other._storage)) { (_args: (_StorageClass, _StorageClass)) in
+  static func ==(lhs: SignalServiceProtos_SyncMessage.Sent, rhs: SignalServiceProtos_SyncMessage.Sent) -> Bool {
+    if lhs._storage !== rhs._storage {
+      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
         let _storage = _args.0
-        let other_storage = _args.1
-        if _storage._destination != other_storage._destination {return false}
-        if _storage._timestamp != other_storage._timestamp {return false}
-        if _storage._message != other_storage._message {return false}
-        if _storage._expirationStartTimestamp != other_storage._expirationStartTimestamp {return false}
+        let rhs_storage = _args.1
+        if _storage._destination != rhs_storage._destination {return false}
+        if _storage._timestamp != rhs_storage._timestamp {return false}
+        if _storage._message != rhs_storage._message {return false}
+        if _storage._expirationStartTimestamp != rhs_storage._expirationStartTimestamp {return false}
+        if _storage._unidentifiedStatus != rhs_storage._unidentifiedStatus {return false}
         return true
       }
       if !storagesAreEqual {return false}
     }
-    if unknownFields != other.unknownFields {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension SignalServiceProtos_SyncMessage.Sent.UnidentifiedDeliveryStatus: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  static let protoMessageName: String = SignalServiceProtos_SyncMessage.Sent.protoMessageName + ".UnidentifiedDeliveryStatus"
+  static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
+    1: .same(proto: "destination"),
+    2: .same(proto: "unidentified"),
+  ]
+
+  mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      switch fieldNumber {
+      case 1: try decoder.decodeSingularStringField(value: &self._destination)
+      case 2: try decoder.decodeSingularBoolField(value: &self._unidentified)
+      default: break
+      }
+    }
+  }
+
+  func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if let v = self._destination {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 1)
+    }
+    if let v = self._unidentified {
+      try visitor.visitSingularBoolField(value: v, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  static func ==(lhs: SignalServiceProtos_SyncMessage.Sent.UnidentifiedDeliveryStatus, rhs: SignalServiceProtos_SyncMessage.Sent.UnidentifiedDeliveryStatus) -> Bool {
+    if lhs._destination != rhs._destination {return false}
+    if lhs._unidentified != rhs._unidentified {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
@@ -3504,18 +4017,18 @@ extension SignalServiceProtos_SyncMessage.Contacts: SwiftProtobuf.Message, Swift
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  func _protobuf_generated_isEqualTo(other: SignalServiceProtos_SyncMessage.Contacts) -> Bool {
-    if _storage !== other._storage {
-      let storagesAreEqual: Bool = withExtendedLifetime((_storage, other._storage)) { (_args: (_StorageClass, _StorageClass)) in
+  static func ==(lhs: SignalServiceProtos_SyncMessage.Contacts, rhs: SignalServiceProtos_SyncMessage.Contacts) -> Bool {
+    if lhs._storage !== rhs._storage {
+      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
         let _storage = _args.0
-        let other_storage = _args.1
-        if _storage._blob != other_storage._blob {return false}
-        if _storage._isComplete != other_storage._isComplete {return false}
+        let rhs_storage = _args.1
+        if _storage._blob != rhs_storage._blob {return false}
+        if _storage._isComplete != rhs_storage._isComplete {return false}
         return true
       }
       if !storagesAreEqual {return false}
     }
-    if unknownFields != other.unknownFields {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
@@ -3566,17 +4079,17 @@ extension SignalServiceProtos_SyncMessage.Groups: SwiftProtobuf.Message, SwiftPr
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  func _protobuf_generated_isEqualTo(other: SignalServiceProtos_SyncMessage.Groups) -> Bool {
-    if _storage !== other._storage {
-      let storagesAreEqual: Bool = withExtendedLifetime((_storage, other._storage)) { (_args: (_StorageClass, _StorageClass)) in
+  static func ==(lhs: SignalServiceProtos_SyncMessage.Groups, rhs: SignalServiceProtos_SyncMessage.Groups) -> Bool {
+    if lhs._storage !== rhs._storage {
+      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
         let _storage = _args.0
-        let other_storage = _args.1
-        if _storage._blob != other_storage._blob {return false}
+        let rhs_storage = _args.1
+        if _storage._blob != rhs_storage._blob {return false}
         return true
       }
       if !storagesAreEqual {return false}
     }
-    if unknownFields != other.unknownFields {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
@@ -3585,12 +4098,14 @@ extension SignalServiceProtos_SyncMessage.Blocked: SwiftProtobuf.Message, SwiftP
   static let protoMessageName: String = SignalServiceProtos_SyncMessage.protoMessageName + ".Blocked"
   static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
     1: .same(proto: "numbers"),
+    2: .same(proto: "groupIds"),
   ]
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
       switch fieldNumber {
       case 1: try decoder.decodeRepeatedStringField(value: &self.numbers)
+      case 2: try decoder.decodeRepeatedBytesField(value: &self.groupIds)
       default: break
       }
     }
@@ -3600,12 +4115,16 @@ extension SignalServiceProtos_SyncMessage.Blocked: SwiftProtobuf.Message, SwiftP
     if !self.numbers.isEmpty {
       try visitor.visitRepeatedStringField(value: self.numbers, fieldNumber: 1)
     }
+    if !self.groupIds.isEmpty {
+      try visitor.visitRepeatedBytesField(value: self.groupIds, fieldNumber: 2)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  func _protobuf_generated_isEqualTo(other: SignalServiceProtos_SyncMessage.Blocked) -> Bool {
-    if self.numbers != other.numbers {return false}
-    if unknownFields != other.unknownFields {return false}
+  static func ==(lhs: SignalServiceProtos_SyncMessage.Blocked, rhs: SignalServiceProtos_SyncMessage.Blocked) -> Bool {
+    if lhs.numbers != rhs.numbers {return false}
+    if lhs.groupIds != rhs.groupIds {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
@@ -3632,9 +4151,9 @@ extension SignalServiceProtos_SyncMessage.Request: SwiftProtobuf.Message, SwiftP
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  func _protobuf_generated_isEqualTo(other: SignalServiceProtos_SyncMessage.Request) -> Bool {
-    if self._type != other._type {return false}
-    if unknownFields != other.unknownFields {return false}
+  static func ==(lhs: SignalServiceProtos_SyncMessage.Request, rhs: SignalServiceProtos_SyncMessage.Request) -> Bool {
+    if lhs._type != rhs._type {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
@@ -3676,10 +4195,10 @@ extension SignalServiceProtos_SyncMessage.Read: SwiftProtobuf.Message, SwiftProt
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  func _protobuf_generated_isEqualTo(other: SignalServiceProtos_SyncMessage.Read) -> Bool {
-    if self._sender != other._sender {return false}
-    if self._timestamp != other._timestamp {return false}
-    if unknownFields != other.unknownFields {return false}
+  static func ==(lhs: SignalServiceProtos_SyncMessage.Read, rhs: SignalServiceProtos_SyncMessage.Read) -> Bool {
+    if lhs._sender != rhs._sender {return false}
+    if lhs._timestamp != rhs._timestamp {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
@@ -3688,12 +4207,18 @@ extension SignalServiceProtos_SyncMessage.Configuration: SwiftProtobuf.Message, 
   static let protoMessageName: String = SignalServiceProtos_SyncMessage.protoMessageName + ".Configuration"
   static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
     1: .same(proto: "readReceipts"),
+    2: .same(proto: "unidentifiedDeliveryIndicators"),
+    3: .same(proto: "typingIndicators"),
+    4: .same(proto: "linkPreviews"),
   ]
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
       switch fieldNumber {
       case 1: try decoder.decodeSingularBoolField(value: &self._readReceipts)
+      case 2: try decoder.decodeSingularBoolField(value: &self._unidentifiedDeliveryIndicators)
+      case 3: try decoder.decodeSingularBoolField(value: &self._typingIndicators)
+      case 4: try decoder.decodeSingularBoolField(value: &self._linkPreviews)
       default: break
       }
     }
@@ -3703,12 +4228,24 @@ extension SignalServiceProtos_SyncMessage.Configuration: SwiftProtobuf.Message, 
     if let v = self._readReceipts {
       try visitor.visitSingularBoolField(value: v, fieldNumber: 1)
     }
+    if let v = self._unidentifiedDeliveryIndicators {
+      try visitor.visitSingularBoolField(value: v, fieldNumber: 2)
+    }
+    if let v = self._typingIndicators {
+      try visitor.visitSingularBoolField(value: v, fieldNumber: 3)
+    }
+    if let v = self._linkPreviews {
+      try visitor.visitSingularBoolField(value: v, fieldNumber: 4)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  func _protobuf_generated_isEqualTo(other: SignalServiceProtos_SyncMessage.Configuration) -> Bool {
-    if self._readReceipts != other._readReceipts {return false}
-    if unknownFields != other.unknownFields {return false}
+  static func ==(lhs: SignalServiceProtos_SyncMessage.Configuration, rhs: SignalServiceProtos_SyncMessage.Configuration) -> Bool {
+    if lhs._readReceipts != rhs._readReceipts {return false}
+    if lhs._unidentifiedDeliveryIndicators != rhs._unidentifiedDeliveryIndicators {return false}
+    if lhs._typingIndicators != rhs._typingIndicators {return false}
+    if lhs._linkPreviews != rhs._linkPreviews {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
@@ -3726,6 +4263,7 @@ extension SignalServiceProtos_AttachmentPointer: SwiftProtobuf.Message, SwiftPro
     8: .same(proto: "flags"),
     9: .same(proto: "width"),
     10: .same(proto: "height"),
+    11: .same(proto: "caption"),
   ]
 
   mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
@@ -3741,6 +4279,7 @@ extension SignalServiceProtos_AttachmentPointer: SwiftProtobuf.Message, SwiftPro
       case 8: try decoder.decodeSingularUInt32Field(value: &self._flags)
       case 9: try decoder.decodeSingularUInt32Field(value: &self._width)
       case 10: try decoder.decodeSingularUInt32Field(value: &self._height)
+      case 11: try decoder.decodeSingularStringField(value: &self._caption)
       default: break
       }
     }
@@ -3777,21 +4316,25 @@ extension SignalServiceProtos_AttachmentPointer: SwiftProtobuf.Message, SwiftPro
     if let v = self._height {
       try visitor.visitSingularUInt32Field(value: v, fieldNumber: 10)
     }
+    if let v = self._caption {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 11)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  func _protobuf_generated_isEqualTo(other: SignalServiceProtos_AttachmentPointer) -> Bool {
-    if self._id != other._id {return false}
-    if self._contentType != other._contentType {return false}
-    if self._key != other._key {return false}
-    if self._size != other._size {return false}
-    if self._thumbnail != other._thumbnail {return false}
-    if self._digest != other._digest {return false}
-    if self._fileName != other._fileName {return false}
-    if self._flags != other._flags {return false}
-    if self._width != other._width {return false}
-    if self._height != other._height {return false}
-    if unknownFields != other.unknownFields {return false}
+  static func ==(lhs: SignalServiceProtos_AttachmentPointer, rhs: SignalServiceProtos_AttachmentPointer) -> Bool {
+    if lhs._id != rhs._id {return false}
+    if lhs._contentType != rhs._contentType {return false}
+    if lhs._key != rhs._key {return false}
+    if lhs._size != rhs._size {return false}
+    if lhs._thumbnail != rhs._thumbnail {return false}
+    if lhs._digest != rhs._digest {return false}
+    if lhs._fileName != rhs._fileName {return false}
+    if lhs._flags != rhs._flags {return false}
+    if lhs._width != rhs._width {return false}
+    if lhs._height != rhs._height {return false}
+    if lhs._caption != rhs._caption {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
@@ -3876,21 +4419,21 @@ extension SignalServiceProtos_GroupContext: SwiftProtobuf.Message, SwiftProtobuf
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  func _protobuf_generated_isEqualTo(other: SignalServiceProtos_GroupContext) -> Bool {
-    if _storage !== other._storage {
-      let storagesAreEqual: Bool = withExtendedLifetime((_storage, other._storage)) { (_args: (_StorageClass, _StorageClass)) in
+  static func ==(lhs: SignalServiceProtos_GroupContext, rhs: SignalServiceProtos_GroupContext) -> Bool {
+    if lhs._storage !== rhs._storage {
+      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
         let _storage = _args.0
-        let other_storage = _args.1
-        if _storage._id != other_storage._id {return false}
-        if _storage._type != other_storage._type {return false}
-        if _storage._name != other_storage._name {return false}
-        if _storage._members != other_storage._members {return false}
-        if _storage._avatar != other_storage._avatar {return false}
+        let rhs_storage = _args.1
+        if _storage._id != rhs_storage._id {return false}
+        if _storage._type != rhs_storage._type {return false}
+        if _storage._name != rhs_storage._name {return false}
+        if _storage._members != rhs_storage._members {return false}
+        if _storage._avatar != rhs_storage._avatar {return false}
         return true
       }
       if !storagesAreEqual {return false}
     }
-    if unknownFields != other.unknownFields {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
@@ -4000,24 +4543,24 @@ extension SignalServiceProtos_ContactDetails: SwiftProtobuf.Message, SwiftProtob
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  func _protobuf_generated_isEqualTo(other: SignalServiceProtos_ContactDetails) -> Bool {
-    if _storage !== other._storage {
-      let storagesAreEqual: Bool = withExtendedLifetime((_storage, other._storage)) { (_args: (_StorageClass, _StorageClass)) in
+  static func ==(lhs: SignalServiceProtos_ContactDetails, rhs: SignalServiceProtos_ContactDetails) -> Bool {
+    if lhs._storage !== rhs._storage {
+      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
         let _storage = _args.0
-        let other_storage = _args.1
-        if _storage._number != other_storage._number {return false}
-        if _storage._name != other_storage._name {return false}
-        if _storage._avatar != other_storage._avatar {return false}
-        if _storage._color != other_storage._color {return false}
-        if _storage._verified != other_storage._verified {return false}
-        if _storage._profileKey != other_storage._profileKey {return false}
-        if _storage._blocked != other_storage._blocked {return false}
-        if _storage._expireTimer != other_storage._expireTimer {return false}
+        let rhs_storage = _args.1
+        if _storage._number != rhs_storage._number {return false}
+        if _storage._name != rhs_storage._name {return false}
+        if _storage._avatar != rhs_storage._avatar {return false}
+        if _storage._color != rhs_storage._color {return false}
+        if _storage._verified != rhs_storage._verified {return false}
+        if _storage._profileKey != rhs_storage._profileKey {return false}
+        if _storage._blocked != rhs_storage._blocked {return false}
+        if _storage._expireTimer != rhs_storage._expireTimer {return false}
         return true
       }
       if !storagesAreEqual {return false}
     }
-    if unknownFields != other.unknownFields {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
@@ -4049,10 +4592,10 @@ extension SignalServiceProtos_ContactDetails.Avatar: SwiftProtobuf.Message, Swif
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  func _protobuf_generated_isEqualTo(other: SignalServiceProtos_ContactDetails.Avatar) -> Bool {
-    if self._contentType != other._contentType {return false}
-    if self._length != other._length {return false}
-    if unknownFields != other.unknownFields {return false}
+  static func ==(lhs: SignalServiceProtos_ContactDetails.Avatar, rhs: SignalServiceProtos_ContactDetails.Avatar) -> Bool {
+    if lhs._contentType != rhs._contentType {return false}
+    if lhs._length != rhs._length {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
@@ -4067,6 +4610,7 @@ extension SignalServiceProtos_GroupDetails: SwiftProtobuf.Message, SwiftProtobuf
     5: .same(proto: "active"),
     6: .same(proto: "expireTimer"),
     7: .same(proto: "color"),
+    8: .same(proto: "blocked"),
   ]
 
   fileprivate class _StorageClass {
@@ -4077,6 +4621,7 @@ extension SignalServiceProtos_GroupDetails: SwiftProtobuf.Message, SwiftProtobuf
     var _active: Bool? = nil
     var _expireTimer: UInt32? = nil
     var _color: String? = nil
+    var _blocked: Bool? = nil
 
     static let defaultInstance = _StorageClass()
 
@@ -4090,6 +4635,7 @@ extension SignalServiceProtos_GroupDetails: SwiftProtobuf.Message, SwiftProtobuf
       _active = source._active
       _expireTimer = source._expireTimer
       _color = source._color
+      _blocked = source._blocked
     }
   }
 
@@ -4112,6 +4658,7 @@ extension SignalServiceProtos_GroupDetails: SwiftProtobuf.Message, SwiftProtobuf
         case 5: try decoder.decodeSingularBoolField(value: &_storage._active)
         case 6: try decoder.decodeSingularUInt32Field(value: &_storage._expireTimer)
         case 7: try decoder.decodeSingularStringField(value: &_storage._color)
+        case 8: try decoder.decodeSingularBoolField(value: &_storage._blocked)
         default: break
         }
       }
@@ -4141,27 +4688,31 @@ extension SignalServiceProtos_GroupDetails: SwiftProtobuf.Message, SwiftProtobuf
       if let v = _storage._color {
         try visitor.visitSingularStringField(value: v, fieldNumber: 7)
       }
+      if let v = _storage._blocked {
+        try visitor.visitSingularBoolField(value: v, fieldNumber: 8)
+      }
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  func _protobuf_generated_isEqualTo(other: SignalServiceProtos_GroupDetails) -> Bool {
-    if _storage !== other._storage {
-      let storagesAreEqual: Bool = withExtendedLifetime((_storage, other._storage)) { (_args: (_StorageClass, _StorageClass)) in
+  static func ==(lhs: SignalServiceProtos_GroupDetails, rhs: SignalServiceProtos_GroupDetails) -> Bool {
+    if lhs._storage !== rhs._storage {
+      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
         let _storage = _args.0
-        let other_storage = _args.1
-        if _storage._id != other_storage._id {return false}
-        if _storage._name != other_storage._name {return false}
-        if _storage._members != other_storage._members {return false}
-        if _storage._avatar != other_storage._avatar {return false}
-        if _storage._active != other_storage._active {return false}
-        if _storage._expireTimer != other_storage._expireTimer {return false}
-        if _storage._color != other_storage._color {return false}
+        let rhs_storage = _args.1
+        if _storage._id != rhs_storage._id {return false}
+        if _storage._name != rhs_storage._name {return false}
+        if _storage._members != rhs_storage._members {return false}
+        if _storage._avatar != rhs_storage._avatar {return false}
+        if _storage._active != rhs_storage._active {return false}
+        if _storage._expireTimer != rhs_storage._expireTimer {return false}
+        if _storage._color != rhs_storage._color {return false}
+        if _storage._blocked != rhs_storage._blocked {return false}
         return true
       }
       if !storagesAreEqual {return false}
     }
-    if unknownFields != other.unknownFields {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
@@ -4193,10 +4744,10 @@ extension SignalServiceProtos_GroupDetails.Avatar: SwiftProtobuf.Message, SwiftP
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  func _protobuf_generated_isEqualTo(other: SignalServiceProtos_GroupDetails.Avatar) -> Bool {
-    if self._contentType != other._contentType {return false}
-    if self._length != other._length {return false}
-    if unknownFields != other.unknownFields {return false}
+  static func ==(lhs: SignalServiceProtos_GroupDetails.Avatar, rhs: SignalServiceProtos_GroupDetails.Avatar) -> Bool {
+    if lhs._contentType != rhs._contentType {return false}
+    if lhs._length != rhs._length {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }

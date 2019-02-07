@@ -1,14 +1,13 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 #import "OWSLinkDeviceViewController.h"
-#import "Cryptography.h"
 #import "OWSDeviceProvisioningURLParser.h"
 #import "OWSLinkedDevicesTableViewController.h"
 #import "Signal-Swift.h"
+#import <SignalCoreKit/Cryptography.h>
 #import <SignalMessaging/OWSProfileManager.h>
-#import <SignalServiceKit/ECKeyPair+OWSPrivateKey.h>
 #import <SignalServiceKit/OWSDevice.h>
 #import <SignalServiceKit/OWSDeviceProvisioner.h>
 #import <SignalServiceKit/OWSIdentityManager.h>
@@ -17,11 +16,11 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface OWSLinkDeviceViewController ()
+@interface OWSLinkDeviceViewController () <OWSQRScannerDelegate>
 
 @property (nonatomic) YapDatabaseConnection *dbConnection;
-@property (nonatomic) IBOutlet UIView *qrScanningView;
-@property (nonatomic) IBOutlet UILabel *scanningInstructionsLabel;
+@property (nonatomic) UIView *qrScanningView;
+@property (nonatomic) UILabel *scanningInstructionsLabel;
 @property (nonatomic) OWSQRCodeScanningViewController *qrScanningController;
 @property (nonatomic, readonly) OWSReadReceiptManager *readReceiptManager;
 
@@ -33,19 +32,57 @@ NS_ASSUME_NONNULL_BEGIN
 {
     [super viewDidLoad];
 
+    self.view.backgroundColor = Theme.backgroundColor;
+
     self.dbConnection = [[OWSPrimaryStorage sharedManager] newDatabaseConnection];
 
-    // HACK to get full width preview layer
-    CGRect oldFrame = self.qrScanningView.frame;
-    self.qrScanningView.frame = CGRectMake(
-        oldFrame.origin.x, oldFrame.origin.y, self.view.frame.size.width, self.view.frame.size.height / 2.0f - 32.0f);
-    // END HACK to get full width preview layer
+    UIImage *heroImage = [UIImage imageNamed:@"ic_devices_ios"];
+    OWSAssertDebug(heroImage);
+    UIImageView *heroImageView = [[UIImageView alloc] initWithImage:heroImage];
+    [heroImageView autoSetDimensionsToSize:heroImage.size];
 
+    self.scanningInstructionsLabel = [UILabel new];
     self.scanningInstructionsLabel.text = NSLocalizedString(@"LINK_DEVICE_SCANNING_INSTRUCTIONS",
         @"QR Scanning screen instructions, placed alongside a camera view for scanning QR Codes");
+    self.scanningInstructionsLabel.textColor = Theme.primaryColor;
+    self.scanningInstructionsLabel.font = UIFont.ows_dynamicTypeCaption1Font;
+    self.scanningInstructionsLabel.numberOfLines = 0;
+    self.scanningInstructionsLabel.lineBreakMode = NSLineBreakByWordWrapping;
+    self.scanningInstructionsLabel.textAlignment = NSTextAlignmentCenter;
+
+    self.qrScanningController = [OWSQRCodeScanningViewController new];
+    self.qrScanningController.scanDelegate = self;
+    [self.view addSubview:self.qrScanningController.view];
+    [self.qrScanningController.view autoPinEdgeToSuperviewEdge:ALEdgeLeading];
+    [self.qrScanningController.view autoPinEdgeToSuperviewEdge:ALEdgeTrailing];
+    [self.qrScanningController.view autoPinToTopLayoutGuideOfViewController:self withInset:0.f];
+    [self.qrScanningController.view autoPinToAspectRatio:1.f];
+
+    UIView *bottomView = [UIView new];
+    [self.view addSubview:bottomView];
+    [bottomView autoPinEdge:ALEdgeTop toEdge:ALEdgeBottom ofView:self.qrScanningController.view];
+    [bottomView autoPinEdgeToSuperviewEdge:ALEdgeLeading];
+    [bottomView autoPinEdgeToSuperviewEdge:ALEdgeTrailing];
+    [bottomView autoPinEdgeToSuperviewEdge:ALEdgeBottom];
+
+    UIStackView *bottomStack = [[UIStackView alloc] initWithArrangedSubviews:@[
+        heroImageView,
+        self.scanningInstructionsLabel,
+    ]];
+    bottomStack.axis = UILayoutConstraintAxisVertical;
+    bottomStack.alignment = UIStackViewAlignmentCenter;
+    bottomStack.spacing = 2;
+    bottomStack.layoutMarginsRelativeArrangement = YES;
+    bottomStack.layoutMargins = UIEdgeInsetsMake(20, 20, 20, 20);
+    [bottomView addSubview:bottomStack];
+    [bottomStack autoPinWidthToSuperview];
+    [bottomStack autoVCenterInSuperview];
+
     self.title
         = NSLocalizedString(@"LINK_NEW_DEVICE_TITLE", "Navigation title when scanning QR code to add new device.");
 }
+
+#pragma mark - Dependencies
 
 - (OWSProfileManager *)profileManager
 {
@@ -57,6 +94,23 @@ NS_ASSUME_NONNULL_BEGIN
     return [OWSReadReceiptManager sharedManager];
 }
 
+- (id<OWSUDManager>)udManager
+{
+    return SSKEnvironment.shared.udManager;
+}
+
+- (TSAccountManager *)tsAccountManager
+{
+    return TSAccountManager.sharedInstance;
+}
+
+- (TSSocketManager *)socketManager
+{
+    return SSKEnvironment.shared.socketManager;
+}
+
+#pragma mark -
+
 - (void)viewWillAppear:(BOOL)animated
 {
     [super viewWillAppear:animated];
@@ -65,26 +119,17 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)viewDidAppear:(BOOL)animated
 {
     [super viewDidAppear:animated];
+
     [self.qrScanningController startCapture];
 }
 
-- (void)prepareForSegue:(UIStoryboardSegue *)segue sender:(nullable id)sender
-{
-    if ([segue.identifier isEqualToString:@"embedDeviceQRScanner"]) {
-        OWSQRCodeScanningViewController *qrScanningController
-            = (OWSQRCodeScanningViewController *)segue.destinationViewController;
-        qrScanningController.scanDelegate = self;
-        self.qrScanningController = qrScanningController;
-    }
-}
-
-
 // pragma mark - OWSQRScannerDelegate
+
 - (void)controller:(OWSQRCodeScanningViewController *)controller didDetectQRCodeWithString:(NSString *)string
 {
     OWSDeviceProvisioningURLParser *parser = [[OWSDeviceProvisioningURLParser alloc] initWithProvisioningURL:string];
     if (!parser.isValid) {
-        DDLogError(@"Unable to parse provisioning params from QRCode: %@", string);
+        OWSLogError(@"Unable to parse provisioning params from QRCode: %@", string);
 
         NSString *title = NSLocalizedString(@"LINK_DEVICE_INVALID_CODE_TITLE", @"report an invalid linking code");
         NSString *body = NSLocalizedString(@"LINK_DEVICE_INVALID_CODE_BODY", @"report an invalid linking code");
@@ -149,9 +194,9 @@ NS_ASSUME_NONNULL_BEGIN
     [OWSDeviceManager.sharedManager setMayHaveLinkedDevices];
 
     ECKeyPair *_Nullable identityKeyPair = [[OWSIdentityManager sharedManager] identityKeyPair];
-    OWSAssert(identityKeyPair);
+    OWSAssertDebug(identityKeyPair);
     NSData *myPublicKey = identityKeyPair.publicKey;
-    NSData *myPrivateKey = identityKeyPair.ows_privateKey;
+    NSData *myPrivateKey = identityKeyPair.privateKey;
     NSString *accountIdentifier = [TSAccountManager localNumber];
     NSData *myProfileKeyData = self.profileManager.localProfileKey.keyData;
     BOOL areReadReceiptsEnabled = self.readReceiptManager.areReadReceiptsEnabled;
@@ -164,19 +209,24 @@ NS_ASSUME_NONNULL_BEGIN
                                                                                profileKey:myProfileKeyData
                                                                       readReceiptsEnabled:areReadReceiptsEnabled];
 
-    [provisioner provisionWithSuccess:^{
-        DDLogInfo(@"Successfully provisioned device.");
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [self.linkedDevicesTableViewController expectMoreDevices];
-            [self.navigationController popToViewController:self.linkedDevicesTableViewController animated:YES];
+    [provisioner
+        provisionWithSuccess:^{
+            OWSLogInfo(@"Successfully provisioned device.");
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self.linkedDevicesTableViewController expectMoreDevices];
+                [self.navigationController popToViewController:self.linkedDevicesTableViewController animated:YES];
 
-            // The service implementation of the socket connection caches the linked device state,
-            // so all sync message sends will fail on the socket until it is cycled.
-            [TSSocketManager.sharedManager cycleSocket];
-        });
-    }
+                // The service implementation of the socket connection caches the linked device state,
+                // so all sync message sends will fail on the socket until it is cycled.
+                [TSSocketManager.shared cycleSocket];
+
+                // Fetch the local profile to determine if all
+                // linked devices support UD.
+                [self.profileManager fetchLocalUsersProfile];
+            });
+        }
         failure:^(NSError *error) {
-            DDLogError(@"Failed to provision device with error: %@", error);
+            OWSLogError(@"Failed to provision device with error: %@", error);
             dispatch_async(dispatch_get_main_queue(), ^{
                 [self presentViewController:[self retryAlertControllerWithError:error
                                                                      retryBlock:^{
@@ -212,6 +262,13 @@ NS_ASSUME_NONNULL_BEGIN
                                }];
     [alertController addAction:cancelAction];
     return alertController;
+}
+
+#pragma mark - Orientation
+
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations
+{
+    return UIInterfaceOrientationMaskPortrait;
 }
 
 @end

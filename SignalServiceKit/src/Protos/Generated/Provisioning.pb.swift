@@ -27,11 +27,12 @@ fileprivate struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAP
   typealias Version = _2
 }
 
-struct ProvisioningProto_ProvisionEnvelope {
+struct ProvisioningProtos_ProvisionEnvelope {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
+  /// @required
   var publicKey: Data {
     get {return _publicKey ?? SwiftProtobuf.Internal.emptyData}
     set {_publicKey = newValue}
@@ -41,7 +42,7 @@ struct ProvisioningProto_ProvisionEnvelope {
   /// Clears the value of `publicKey`. Subsequent reads from it will return its default value.
   mutating func clearPublicKey() {self._publicKey = nil}
 
-  /// Encrypted ProvisionMessage
+  /// @required
   var body: Data {
     get {return _body ?? SwiftProtobuf.Internal.emptyData}
     set {_body = newValue}
@@ -59,11 +60,12 @@ struct ProvisioningProto_ProvisionEnvelope {
   fileprivate var _body: Data? = nil
 }
 
-struct ProvisioningProto_ProvisionMessage {
+struct ProvisioningProtos_ProvisionMessage {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
+  /// @required
   var identityKeyPublic: Data {
     get {return _identityKeyPublic ?? SwiftProtobuf.Internal.emptyData}
     set {_identityKeyPublic = newValue}
@@ -73,6 +75,7 @@ struct ProvisioningProto_ProvisionMessage {
   /// Clears the value of `identityKeyPublic`. Subsequent reads from it will return its default value.
   mutating func clearIdentityKeyPublic() {self._identityKeyPublic = nil}
 
+  /// @required
   var identityKeyPrivate: Data {
     get {return _identityKeyPrivate ?? SwiftProtobuf.Internal.emptyData}
     set {_identityKeyPrivate = newValue}
@@ -82,6 +85,7 @@ struct ProvisioningProto_ProvisionMessage {
   /// Clears the value of `identityKeyPrivate`. Subsequent reads from it will return its default value.
   mutating func clearIdentityKeyPrivate() {self._identityKeyPrivate = nil}
 
+  /// @required
   var number: String {
     get {return _number ?? String()}
     set {_number = newValue}
@@ -91,6 +95,7 @@ struct ProvisioningProto_ProvisionMessage {
   /// Clears the value of `number`. Subsequent reads from it will return its default value.
   mutating func clearNumber() {self._number = nil}
 
+  /// @required
   var provisioningCode: String {
     get {return _provisioningCode ?? String()}
     set {_provisioningCode = newValue}
@@ -100,6 +105,7 @@ struct ProvisioningProto_ProvisionMessage {
   /// Clears the value of `provisioningCode`. Subsequent reads from it will return its default value.
   mutating func clearProvisioningCode() {self._provisioningCode = nil}
 
+  /// @required
   var userAgent: String {
     get {return _userAgent ?? String()}
     set {_userAgent = newValue}
@@ -109,6 +115,7 @@ struct ProvisioningProto_ProvisionMessage {
   /// Clears the value of `userAgent`. Subsequent reads from it will return its default value.
   mutating func clearUserAgent() {self._userAgent = nil}
 
+  /// @required
   var profileKey: Data {
     get {return _profileKey ?? SwiftProtobuf.Internal.emptyData}
     set {_profileKey = newValue}
@@ -118,6 +125,7 @@ struct ProvisioningProto_ProvisionMessage {
   /// Clears the value of `profileKey`. Subsequent reads from it will return its default value.
   mutating func clearProfileKey() {self._profileKey = nil}
 
+  /// @required
   var readReceipts: Bool {
     get {return _readReceipts ?? false}
     set {_readReceipts = newValue}
@@ -142,9 +150,9 @@ struct ProvisioningProto_ProvisionMessage {
 
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
-fileprivate let _protobuf_package = "ProvisioningProto"
+fileprivate let _protobuf_package = "ProvisioningProtos"
 
-extension ProvisioningProto_ProvisionEnvelope: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+extension ProvisioningProtos_ProvisionEnvelope: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".ProvisionEnvelope"
   static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
     1: .same(proto: "publicKey"),
@@ -171,15 +179,15 @@ extension ProvisioningProto_ProvisionEnvelope: SwiftProtobuf.Message, SwiftProto
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  func _protobuf_generated_isEqualTo(other: ProvisioningProto_ProvisionEnvelope) -> Bool {
-    if self._publicKey != other._publicKey {return false}
-    if self._body != other._body {return false}
-    if unknownFields != other.unknownFields {return false}
+  static func ==(lhs: ProvisioningProtos_ProvisionEnvelope, rhs: ProvisioningProtos_ProvisionEnvelope) -> Bool {
+    if lhs._publicKey != rhs._publicKey {return false}
+    if lhs._body != rhs._body {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }
 
-extension ProvisioningProto_ProvisionMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+extension ProvisioningProtos_ProvisionMessage: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   static let protoMessageName: String = _protobuf_package + ".ProvisionMessage"
   static let _protobuf_nameMap: SwiftProtobuf._NameMap = [
     1: .same(proto: "identityKeyPublic"),
@@ -231,15 +239,15 @@ extension ProvisioningProto_ProvisionMessage: SwiftProtobuf.Message, SwiftProtob
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  func _protobuf_generated_isEqualTo(other: ProvisioningProto_ProvisionMessage) -> Bool {
-    if self._identityKeyPublic != other._identityKeyPublic {return false}
-    if self._identityKeyPrivate != other._identityKeyPrivate {return false}
-    if self._number != other._number {return false}
-    if self._provisioningCode != other._provisioningCode {return false}
-    if self._userAgent != other._userAgent {return false}
-    if self._profileKey != other._profileKey {return false}
-    if self._readReceipts != other._readReceipts {return false}
-    if unknownFields != other.unknownFields {return false}
+  static func ==(lhs: ProvisioningProtos_ProvisionMessage, rhs: ProvisioningProtos_ProvisionMessage) -> Bool {
+    if lhs._identityKeyPublic != rhs._identityKeyPublic {return false}
+    if lhs._identityKeyPrivate != rhs._identityKeyPrivate {return false}
+    if lhs._number != rhs._number {return false}
+    if lhs._provisioningCode != rhs._provisioningCode {return false}
+    if lhs._userAgent != rhs._userAgent {return false}
+    if lhs._profileKey != rhs._profileKey {return false}
+    if lhs._readReceipts != rhs._readReceipts {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
 }

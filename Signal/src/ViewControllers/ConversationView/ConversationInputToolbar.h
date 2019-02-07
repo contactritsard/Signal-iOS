@@ -1,10 +1,11 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 NS_ASSUME_NONNULL_BEGIN
 
 @class ConversationStyle;
+@class OWSLinkPreviewDraft;
 @class OWSQuotedReplyModel;
 @class SignalAttachment;
 
@@ -53,8 +54,11 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)updateFontSizes;
 
+- (void)updateLayoutWithSafeAreaInsets:(UIEdgeInsets)safeAreaInsets;
+
 #pragma mark - Voice Memo
 
+- (void)ensureTextViewHeight;
 - (void)showVoiceMemoUI;
 
 - (void)hideVoiceMemoUI:(BOOL)animated;
@@ -64,6 +68,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)cancelVoiceMemoIfNecessary;
 
 @property (nonatomic, nullable) OWSQuotedReplyModel *quotedReply;
+
+@property (nonatomic, nullable, readonly) OWSLinkPreviewDraft *linkPreviewDraft;
 
 @end
 

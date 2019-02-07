@@ -1,5 +1,5 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 #import "OWS2FARegistrationViewController.h"
@@ -15,7 +15,6 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface OWS2FARegistrationViewController () <PinEntryViewDelegate>
 
-@property (nonatomic, readonly) AccountManager *accountManager;
 @property (nonatomic) PinEntryView *entryView;
 
 @end
@@ -24,28 +23,11 @@ NS_ASSUME_NONNULL_BEGIN
 
 @implementation OWS2FARegistrationViewController
 
-- (nullable instancetype)initWithCoder:(NSCoder *)aDecoder
+#pragma mark - Dependencies
+
+- (AccountManager *)accountManager
 {
-    self = [super initWithCoder:aDecoder];
-    if (!self) {
-        return self;
-    }
-
-    _accountManager = SignalApp.sharedApp.accountManager;
-
-    return self;
-}
-
-- (instancetype)init
-{
-    self = [super init];
-    if (!self) {
-        return self;
-    }
-
-    _accountManager = SignalApp.sharedApp.accountManager;
-
-    return self;
+    return AppEnvironment.shared.accountManager;
 }
 
 #pragma mark - View Lifecycle
@@ -96,7 +78,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)pinEntryView:(PinEntryView *)entryView submittedPinCode:(NSString *)pinCode
 {
-    OWSAssert(self.entryView.hasValidPin);
+    OWSAssertDebug(self.entryView.hasValidPin);
 
     [self tryToRegisterWithPinCode:pinCode];
 }
@@ -112,11 +94,11 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)tryToRegisterWithPinCode:(NSString *)pinCode
 {
-    OWSAssert(self.entryView.hasValidPin);
-    OWSAssert(self.verificationCode.length > 0);
-    OWSAssert(pinCode.length > 0);
+    OWSAssertDebug(self.entryView.hasValidPin);
+    OWSAssertDebug(self.verificationCode.length > 0);
+    OWSAssertDebug(pinCode.length > 0);
 
-    DDLogInfo(@"%@ %s", self.logTag, __PRETTY_FUNCTION__);
+    OWSLogInfo(@"");
 
     __weak OWS2FARegistrationViewController *weakSelf = self;
 
@@ -125,45 +107,53 @@ NS_ASSUME_NONNULL_BEGIN
                         canCancel:NO
                   backgroundBlock:^(ModalActivityIndicatorViewController *modalActivityIndicator) {
                       OWSProdInfo([OWSAnalyticsEvents registrationRegisteringCode]);
-                      [self.accountManager registerWithVerificationCode:self.verificationCode pin:pinCode]
-                          .then(^{
-                              OWSAssertIsOnMainThread();
-                              OWSProdInfo([OWSAnalyticsEvents registrationRegisteringSubmittedCode]);
-                              [[OWS2FAManager sharedManager] mark2FAAsEnabledWithPin:pinCode];
+                      [[self.accountManager registerObjcWithVerificationCode:self.verificationCode pin:pinCode]
+                              .then(^{
+                                  OWSAssertIsOnMainThread();
+                                  OWSProdInfo([OWSAnalyticsEvents registrationRegisteringSubmittedCode]);
+                                  [[OWS2FAManager sharedManager] mark2FAAsEnabledWithPin:pinCode];
 
-                              DDLogInfo(@"%@ Successfully registered Signal account.", weakSelf.logTag);
-                              dispatch_async(dispatch_get_main_queue(), ^{
-                                  [modalActivityIndicator dismissWithCompletion:^{
-                                      OWSAssertIsOnMainThread();
+                                  OWSLogInfo(@"Successfully registered Signal account.");
+                                  dispatch_async(dispatch_get_main_queue(), ^{
+                                      [modalActivityIndicator dismissWithCompletion:^{
+                                          OWSAssertIsOnMainThread();
 
-                                      [weakSelf verificationWasCompleted];
-                                  }];
-                              });
-                          })
-                          .catch(^(NSError *error) {
-                              OWSAssertIsOnMainThread();
-                              OWSProdInfo([OWSAnalyticsEvents registrationRegistrationFailed]);
-                              DDLogError(@"%@ error verifying challenge: %@", weakSelf.logTag, error);
-                              dispatch_async(dispatch_get_main_queue(), ^{
-                                  [modalActivityIndicator dismissWithCompletion:^{
-                                      OWSAssertIsOnMainThread();
+                                          [weakSelf verificationWasCompleted];
+                                      }];
+                                  });
+                              })
+                              .catch(^(NSError *error) {
+                                  OWSAssertIsOnMainThread();
+                                  OWSProdInfo([OWSAnalyticsEvents registrationRegistrationFailed]);
+                                  OWSLogError(@"error verifying challenge: %@", error);
+                                  dispatch_async(dispatch_get_main_queue(), ^{
+                                      [modalActivityIndicator dismissWithCompletion:^{
+                                          OWSAssertIsOnMainThread();
 
-                                      [OWSAlerts showAlertWithTitle:NSLocalizedString(
-                                                                        @"REGISTER_2FA_REGISTRATION_FAILED_ALERT_TITLE",
-                                                                        @"Title for alert indicating that attempt to "
-                                                                        @"register with 'two-factor auth' failed.")
-                                                            message:error.localizedDescription];
+                                          [OWSAlerts
+                                              showAlertWithTitle:NSLocalizedString(
+                                                                     @"REGISTER_2FA_REGISTRATION_FAILED_ALERT_TITLE",
+                                                                     @"Title for alert indicating that attempt to "
+                                                                     @"register with 'two-factor auth' failed.")
+                                                         message:error.localizedDescription];
 
-                                      [weakSelf.entryView makePinTextFieldFirstResponder];
-                                  }];
-                              });
-                          });
+                                          [weakSelf.entryView makePinTextFieldFirstResponder];
+                                      }];
+                                  });
+                              }) retainUntilComplete];
                   }];
 }
 
 - (void)verificationWasCompleted
 {
-    [ProfileViewController presentForRegistration:self.navigationController];
+    [RegistrationController verificationWasCompletedFromView:self];
+}
+
+#pragma mark - Orientation
+
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations
+{
+    return UIInterfaceOrientationMaskPortrait;
 }
 
 @end

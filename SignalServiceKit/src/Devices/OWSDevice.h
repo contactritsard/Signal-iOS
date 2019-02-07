@@ -17,7 +17,7 @@ extern uint32_t const OWSDevicePrimaryDeviceId;
 
 - (BOOL)mayHaveLinkedDevices:(YapDatabaseConnection *)dbConnection;
 - (void)setMayHaveLinkedDevices;
-- (void)clearMayHaveLinkedDevicesIfNotSet;
+- (void)clearMayHaveLinkedDevices;
 
 - (BOOL)hasReceivedSyncMessageInLastSeconds:(NSTimeInterval)intervalSeconds;
 - (void)setHasReceivedSyncMessage;
@@ -33,15 +33,19 @@ extern uint32_t const OWSDevicePrimaryDeviceId;
 @property (nonatomic, readonly) NSDate *createdAt;
 @property (nonatomic, readonly) NSDate *lastSeenAt;
 
-+ (instancetype)deviceFromJSONDictionary:(NSDictionary *)deviceAttributes error:(NSError **)error;
++ (nullable instancetype)deviceFromJSONDictionary:(NSDictionary *)deviceAttributes error:(NSError **)error;
+
++ (NSArray<OWSDevice *> *)currentDevicesWithTransaction:(YapDatabaseReadTransaction *)transaction;
 
 /**
  * Set local database of devices to `devices`.
  *
  * This will create missing devices, update existing devices, and delete stale devices.
  * @param devices Removes any existing devices, replacing them with `devices`
+ *
+ * Returns YES if any devices were added or removed.
  */
-+ (void)replaceAll:(NSArray<OWSDevice *> *)devices;
++ (BOOL)replaceAll:(NSArray<OWSDevice *> *)devices;
 
 /**
  * The id of the device currently running this application

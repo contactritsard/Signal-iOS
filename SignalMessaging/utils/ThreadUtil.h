@@ -1,19 +1,25 @@
 //
-//  Copyright (c) 2018 Open Whisper Systems. All rights reserved.
+//  Copyright (c) 2019 Open Whisper Systems. All rights reserved.
 //
 
 NS_ASSUME_NONNULL_BEGIN
 
 @class OWSBlockingManager;
+@class OWSContact;
 @class OWSContactsManager;
+@class OWSLinkPreviewDraft;
 @class OWSMessageSender;
+@class OWSQuotedReplyModel;
 @class OWSUnreadIndicator;
 @class SignalAttachment;
 @class TSContactThread;
+@class TSGroupThread;
 @class TSInteraction;
+@class TSOutgoingMessage;
 @class TSThread;
 @class YapDatabaseConnection;
 @class YapDatabaseReadTransaction;
+@class YapDatabaseReadWriteTransaction;
 
 @interface ThreadDynamicInteractions : NSObject
 
@@ -34,42 +40,54 @@ NS_ASSUME_NONNULL_BEGIN
 
 #pragma mark -
 
-@class OWSContact;
-@class OWSQuotedReplyModel;
-@class TSOutgoingMessage;
-
 @interface ThreadUtil : NSObject
 
-+ (TSOutgoingMessage *)sendMessageWithText:(NSString *)text
-                                  inThread:(TSThread *)thread
-                          quotedReplyModel:(nullable OWSQuotedReplyModel *)quotedReplyModel
-                             messageSender:(OWSMessageSender *)messageSender
-                                   success:(void (^)(void))successHandler
-                                   failure:(void (^)(NSError *error))failureHandler;
+#pragma mark - Durable Message Enqueue
 
-+ (TSOutgoingMessage *)sendMessageWithText:(NSString *)text
-                                  inThread:(TSThread *)thread
-                          quotedReplyModel:(nullable OWSQuotedReplyModel *)quotedReplyModel
-                             messageSender:(OWSMessageSender *)messageSender;
++ (TSOutgoingMessage *)enqueueMessageWithText:(NSString *)text
+                                     inThread:(TSThread *)thread
+                             quotedReplyModel:(nullable OWSQuotedReplyModel *)quotedReplyModel
+                             linkPreviewDraft:(nullable nullable OWSLinkPreviewDraft *)linkPreviewDraft
+                                  transaction:(YapDatabaseReadTransaction *)transaction;
 
-+ (TSOutgoingMessage *)sendMessageWithAttachment:(SignalAttachment *)attachment
-                                        inThread:(TSThread *)thread
-                                quotedReplyModel:(nullable OWSQuotedReplyModel *)quotedReplyModel
-                                   messageSender:(OWSMessageSender *)messageSender
-                                      completion:(void (^_Nullable)(NSError *_Nullable error))completion;
++ (TSOutgoingMessage *)enqueueMessageWithAttachment:(SignalAttachment *)attachment
+                                           inThread:(TSThread *)thread
+                                   quotedReplyModel:(nullable OWSQuotedReplyModel *)quotedReplyModel;
 
-// We only should set ignoreErrors in debug or test code.
-+ (TSOutgoingMessage *)sendMessageWithAttachment:(SignalAttachment *)attachment
-                                        inThread:(TSThread *)thread
-                                quotedReplyModel:(nullable OWSQuotedReplyModel *)quotedReplyModel
-                                   messageSender:(OWSMessageSender *)messageSender
-                                    ignoreErrors:(BOOL)ignoreErrors
-                                      completion:(void (^_Nullable)(NSError *_Nullable error))completion;
++ (TSOutgoingMessage *)enqueueMessageWithAttachments:(NSArray<SignalAttachment *> *)attachments
+                                         messageBody:(nullable NSString *)messageBody
+                                            inThread:(TSThread *)thread
+                                    quotedReplyModel:(nullable OWSQuotedReplyModel *)quotedReplyModel;
 
-+ (TSOutgoingMessage *)sendMessageWithContactShare:(OWSContact *)contactShare
-                                          inThread:(TSThread *)thread
-                                     messageSender:(OWSMessageSender *)messageSender
-                                        completion:(void (^_Nullable)(NSError *_Nullable error))completion;
++ (TSOutgoingMessage *)enqueueMessageWithContactShare:(OWSContact *)contactShare inThread:(TSThread *)thread;
++ (void)enqueueLeaveGroupMessageInThread:(TSGroupThread *)thread;
+
+#pragma mark - Non-Durable Sending
+
+// Used by SAE and "reply from lockscreen", otherwise we should use the durable `enqueue` counterpart
++ (TSOutgoingMessage *)sendMessageNonDurablyWithText:(NSString *)text
+                                            inThread:(TSThread *)thread
+                                    quotedReplyModel:(nullable OWSQuotedReplyModel *)quotedReplyModel
+                                       messageSender:(OWSMessageSender *)messageSender
+                                             success:(void (^)(void))successHandler
+                                             failure:(void (^)(NSError *error))failureHandler;
+
+// Used by SAE, otherwise we should use the durable `enqueue` counterpart
++ (TSOutgoingMessage *)sendMessageNonDurablyWithAttachments:(NSArray<SignalAttachment *> *)attachments
+                                                   inThread:(TSThread *)thread
+                                                messageBody:(nullable NSString *)messageBody
+                                           quotedReplyModel:(nullable OWSQuotedReplyModel *)quotedReplyModel
+                                              messageSender:(OWSMessageSender *)messageSender
+                                                 completion:(void (^_Nullable)(NSError *_Nullable error))completion;
+
+// Used by SAE, otherwise we should use the durable `enqueue` counterpart
++ (TSOutgoingMessage *)sendMessageNonDurablyWithContactShare:(OWSContact *)contactShare
+                                                    inThread:(TSThread *)thread
+                                               messageSender:(OWSMessageSender *)messageSender
+                                                  completion:(void (^_Nullable)(NSError *_Nullable error))completion;
+
+
+#pragma mark - dynamic interactions
 
 // This method will create and/or remove any offers and indicators
 // necessary for this thread.  This includes:
